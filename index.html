@@ -1,40 +1,288 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Тестовый репозиторий</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            text-align: center;
-            margin-top: 100px;
-            background-color: #f5f5f5;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Inbound Dashboard</title>
 
-        .container {
-            background: white;
-            padding: 30px;
-            max-width: 600px;
-            margin: auto;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
+<script/cdn.jsdelivr.net/npm/chart.jsscript>
 
-        h1 {
-            color: #24292e;
-        }
+<style>
+body{
+    margin:0;
+    padding:20px;
+    background:#f5f7fa;
+    font-family:Segoe UI,Arial,sans-serif;
+}
 
-        p {
-            color: #586069;
-        }
-    </style>
+h1{
+    margin-bottom:20px;
+}
+
+.kpi-container{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+    gap:15px;
+    margin-bottom:25px;
+}
+
+.kpi{
+    background:white;
+    border-radius:12px;
+    padding:20px;
+    box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+
+.kpi-title{
+    color:#666;
+    font-size:14px;
+}
+
+.kpi-value{
+    font-size:32px;
+    font-weight:bold;
+    color:#1f4287;
+    margin-top:10px;
+}
+
+.grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:20px;
+}
+
+.card{
+    background:white;
+    padding:20px;
+    border-radius:12px;
+    box-shadow:0 2px 8px rgba(0,0,0,.08);
+}
+
+.card-wide{
+    grid-column:1 / -1;
+}
+
+canvas{
+    max-height:400px;
+}
+
+@media(max-width:1000px){
+    .grid{
+        grid-template-columns:1fr;
+    }
+}
+</style>
 </head>
+
 <body>
-    <div class="container">
-        <h1>Привет, GitHub! 🚀</h1>
-        <p>Это тестовая страница для проверки репозитория и GitHub Pages.</p>
-        <p>Создано для тестирования публикации сайта.</p>
+
+<h1>📦 Dashboard приемки товара</h1>
+
+<div class="kpi-container">
+
+    <div class="kpi">
+        <div class="kpi-title">Всего единиц принято</div>
+        <div class="kpi-value" id="qty">0</div>
     </div>
+
+    <div class="kpi">
+        <div class="kpi-title">Уникальных ASN</div>
+        <div class="kpi-value" id="asn">0</div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-title">Уникальных SKU</div>
+        <div class="kpi-value" id="sku">0</div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-title">Сотрудников</div>
+        <div class="kpi-value" id="employees">0</div>
+    </div>
+
+</div>
+
+<div class="grid">
+
+    <div class="card">
+        <h3>Приемка по сотрудникам</h3>
+        <canvas id="employeeChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>Приемка по часам</h3>
+        <canvas id="hourChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>ТОП-10 товарных групп</h3>
+        <canvas id="groupChart"></canvas>
+    </div>
+
+    <div class="card">
+        <h3>ТОП-10 SKU</h3>
+        <canvas id="skuChart"></canvas>
+    </div>
+
+    <div class="card card-wide">
+        <h3>Приемка по дням</h3>
+        <canvas id="dateChart"></canvas>
+    </div>
+
+</div>
+
+<script>
+
+async function loadData(){
+
+    const response = await fetch("inbound.csv");
+    const text = await response.text();
+
+    const rows = text
+        .split(/\r?\n/)
+        .filter(x => x.trim().length > 0)
+        .slice(1)
+        .map(row =>
+            row
+              .split('";"')
+              .map(c => c.replace(/^"/,'').replace(/"$/,''))
+        );
+
+    let totalQty = 0;
+
+    const asnSet = new Set();
+    const skuSet = new Set();
+    const employeeSet = new Set();
+
+    const employeeQty = {};
+    const hourQty = {};
+    const groupQty = {};
+    const skuQtyMap = {};
+    const dateQty = {};
+
+    rows.forEach(r => {
+
+        const asn = r[0];
+        const group = r[5];
+        const sku = r[6];
+        const qty = Number(r[7]) || 0;
+        const date = r[10];
+        const time = r[11];
+        const employee = r[12];
+
+        totalQty += qty;
+
+        asnSet.add(asn);
+        skuSet.add(sku);
+        employeeSet.add(employee);
+
+        employeeQty[employee] =
+            (employeeQty[employee] || 0) + qty;
+
+        groupQty[group] =
+            (groupQty[group] || 0) + qty;
+
+        skuQtyMap[sku] =
+            (skuQtyMap[sku] || 0) + qty;
+
+        dateQty[date] =
+            (dateQty[date] || 0) + qty;
+
+        const hour = time.substring(0,2);
+
+        hourQty[hour] =
+            (hourQty[hour] || 0) + qty;
+    });
+
+    document.getElementById("qty").innerText =
+        totalQty.toLocaleString('ru-RU');
+
+    document.getElementById("asn").innerText =
+        asnSet.size.toLocaleString('ru-RU');
+
+    document.getElementById("sku").innerText =
+        skuSet.size.toLocaleString('ru-RU');
+
+    document.getElementById("employees").innerText =
+        employeeSet.size.toLocaleString('ru-RU');
+
+    buildBar(
+        "employeeChart",
+        employeeQty,
+        "Количество"
+    );
+
+    buildBar(
+        "hourChart",
+        hourQty,
+        "Количество"
+    );
+
+    buildBar(
+        "dateChart",
+        dateQty,
+        "Количество"
+    );
+
+    buildHorizontalTop10(
+        "groupChart",
+        groupQty
+    );
+
+    buildHorizontalTop10(
+        "skuChart",
+        skuQtyMap
+    );
+}
+
+function buildBar(canvasId,data,label){
+
+    new Chart(
+        document.getElementById(canvasId),
+        {
+            type:'bar',
+            data:{
+                labels:Object.keys(data),
+                datasets:[{
+                    label:label,
+                    data:Object.values(data)
+                }]
+            },
+            options:{
+                responsive:true
+            }
+        }
+    );
+}
+
+function buildHorizontalTop10(id,data){
+
+    const sorted =
+        Object.entries(data)
+            .sort((a,b)=>b[1]-a[1])
+            .slice(0,10);
+
+    new Chart(
+        document.getElementById(id),
+        {
+            type:'bar',
+            data:{
+                labels:sorted.map(x=>x[0]),
+                datasets:[{
+                    data:sorted.map(x=>x[1])
+                }]
+            },
+            options:{
+                indexAxis:'y',
+                responsive:true
+            }
+        }
+    );
+}
+
+loadData();
+
+</script>
+
 </body>
 </html>
