@@ -1,288 +1,487 @@
-
 <!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Inbound 07.07.2026 18:05 </title>
+<title>ASN Dashboard</title>
 
+<script src="https://cdnjs.cloudflare.com/ajaxse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <style>
-body{
-    margin:0;
-    padding:20px;
-    background:#f5f7fa;
-    font-family:Segoe UI,Arial,sans-serif;
-}
-
-h1{
-    margin-bottom:20px;
-}
-
-.kpi-container{
-    display:grid;
-    grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
-    gap:15px;
-    margin-bottom:25px;
-}
-
-.kpi{
-    background:white;
-    border-radius:12px;
-    padding:20px;
-    box-shadow:0 2px 8px rgba(0,0,0,.08);
-}
-
-.kpi-title{
-    color:#666;
-    font-size:14px;
-}
-
-.kpi-value{
-    font-size:32px;
-    font-weight:bold;
-    color:#1f4287;
-    margin-top:10px;
-}
-
-.grid{
-    display:grid;
-    grid-template-columns:1fr 1fr;
-    gap:20px;
-}
-
-.card{
-    background:white;
-    padding:20px;
-    border-radius:12px;
-    box-shadow:0 2px 8px rgba(0,0,0,.08);
-}
-
-.card-wide{
-    grid-column:1 / -1;
-}
-
-canvas{
-    max-height:400px;
-}
-
-@media(max-width:1000px){
-    .grid{
-        grid-template-columns:1fr;
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Segoe UI", Arial, sans-serif;
     }
-}
+
+    body {
+        background: #f4f6f9;
+        padding: 20px;
+        color: #2c3e50;
+    }
+
+    h1 {
+        margin-bottom: 20px;
+    }
+
+    .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .card {
+        background: white;
+        border-radius: 12px;
+        padding: 18px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .card .value {
+        font-size: 30px;
+        font-weight: bold;
+        margin-top: 8px;
+    }
+
+    .charts {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+
+    .chart-container {
+        background: white;
+        border-radius: 12px;
+        padding: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+
+    .truck {
+        background: white;
+        border-radius: 14px;
+        margin-bottom: 20px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        overflow: hidden;
+    }
+
+    .truck-header {
+        background: #1f4e79;
+        color: white;
+        padding: 15px 20px;
+        font-size: 20px;
+        font-weight: bold;
+    }
+
+    .pallet {
+        margin: 15px;
+        border: 1px solid #dfe6ec;
+        border-radius: 10px;
+        overflow: hidden;
+    }
+
+    .pallet-header {
+        background: #edf3f9;
+        padding: 12px 15px;
+        font-weight: bold;
+    }
+
+    .asn {
+        padding: 14px;
+        border-top: 1px solid #eef2f5;
+    }
+
+    .asn.priority {
+        background: #fff2f2;
+        border-left: 6px solid #e53935;
+    }
+
+    .asn-title {
+        display: flex;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+
+    .progress {
+        width: 100%;
+        height: 24px;
+        background: #e9eef3;
+        border-radius: 30px;
+        overflow: hidden;
+    }
+
+    .progress-bar {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+        transition: 0.3s;
+    }
+
+    .green {
+        background: linear-gradient(90deg,#2ecc71,#27ae60);
+    }
+
+    .orange {
+        background: linear-gradient(90deg,#f39c12,#e67e22);
+    }
+
+    .red {
+        background: linear-gradient(90deg,#e74c3c,#c0392b);
+    }
+
+    .priority-badge {
+        background: #e53935;
+        color: white;
+        padding: 4px 8px;
+        border-radius: 20px;
+        font-size: 12px;
+    }
+
+    .details {
+        margin-top: 8px;
+        color: #555;
+        font-size: 13px;
+    }
+
+    @media(max-width:1000px){
+        .charts{
+            grid-template-columns:1fr;
+        }
+    }
 </style>
 </head>
 
 <body>
 
-<h1>📦 Dashboard приемки товара</h1>
+<h1>🚚 Дашборд приемки ASN</h1>
 
-<div class="kpi-container">
-
-    <div class="kpi">
-        <div class="kpi-title">Всего единиц принято</div>
-        <div class="kpi-value" id="qty">0</div>
+<div class="summary">
+    <div class="card">
+        <div>Машин на приемке</div>
+        <div class="value" id="truckCount">0</div>
     </div>
 
-    <div class="kpi">
-        <div class="kpi-title">Уникальных ASN</div>
-        <div class="kpi-value" id="asn">0</div>
+    <div class="card">
+        <div>Паллет</div>
+        <div class="value" id="palletCount">0</div>
     </div>
 
-    <div class="kpi">
-        <div class="kpi-title">Уникальных SKU</div>
-        <div class="kpi-value" id="sku">0</div>
+    <div class="card">
+        <div>ASN</div>
+        <div class="value" id="asnCount">0</div>
     </div>
 
-    <div class="kpi">
-        <div class="kpi-title">Сотрудников</div>
-        <div class="kpi-value" id="employees">0</div>
+    <div class="card">
+        <div>Общий % приемки</div>
+        <div class="value" id="overallAcceptance">0%</div>
     </div>
-
 </div>
 
-<div class="grid">
-
-    <div class="card">
-        <h3>Приемка по сотрудникам</h3>
-        <canvas id="employeeChart"></canvas>
+<div class="charts">
+    <div class="chart-container">
+        <canvas id="truckChart"></canvas>
     </div>
 
-    <div class="card">
-        <h3>Приемка по часам</h3>
-        <canvas id="hourChart"></canvas>
+    <div class="chart-container">
+        <canvas id="priorityChart"></canvas>
     </div>
-
-    <div class="card">
-        <h3>ТОП-10 товарных групп</h3>
-        <canvas id="groupChart"></canvas>
-    </div>
-
-    <div class="card">
-        <h3>ТОП-10 SKU</h3>
-        <canvas id="skuChart"></canvas>
-    </div>
-
-    <div class="card card-wide">
-        <h3>Приемка по дням</h3>
-        <canvas id="dateChart"></canvas>
-    </div>
-
 </div>
+
+<div id="dashboard"></div>
+
 
 <script>
 
-async function loadData(){
+let truckChart = null;
+let priorityChart = null;
 
-    const response = await fetch("inbound.csv");
-    const text = await response.text();
+fetch('./asn.csv')
+.then(response => response.text())
+.then(csv => {
 
-    const rows = text
-        .split(/\r?\n/)
-        .filter(x => x.trim().length > 0)
-        .slice(1)
-        .map(row =>
-            row
-              .split('";"')
-              .map(c => c.replace(/^"/,'').replace(/"$/,''))
-        );
-
-    let totalQty = 0;
-
-    const asnSet = new Set();
-    const skuSet = new Set();
-    const employeeSet = new Set();
-
-    const employeeQty = {};
-    const hourQty = {};
-    const groupQty = {};
-    const skuQtyMap = {};
-    const dateQty = {};
-
-    rows.forEach(r => {
-
-        const asn = r[0];
-        const group = r[5];
-        const sku = r[6];
-        const qty = Number(r[7]) || 0;
-        const date = r[10];
-        const time = r[11];
-        const employee = r[12];
-
-        totalQty += qty;
-
-        asnSet.add(asn);
-        skuSet.add(sku);
-        employeeSet.add(employee);
-
-        employeeQty[employee] =
-            (employeeQty[employee] || 0) + qty;
-
-        groupQty[group] =
-            (groupQty[group] || 0) + qty;
-
-        skuQtyMap[sku] =
-            (skuQtyMap[sku] || 0) + qty;
-
-        dateQty[date] =
-            (dateQty[date] || 0) + qty;
-
-        const hour = time.substring(0,2);
-
-        hourQty[hour] =
-            (hourQty[hour] || 0) + qty;
+    Papa.parse(csv, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(result) {
+            buildDashboard(result.data);
+        }
     });
 
-    document.getElementById("qty").innerText =
-        totalQty.toLocaleString('ru-RU');
+})
+.catch(error => {
+    document.body.innerHTML += `
+        <div style="color:red;padding:20px">
+            Не удалось загрузить файл asn.csv<br>
+            ${error}
+        </div>
+    `;
+});
 
-    document.getElementById("asn").innerText =
-        asnSet.size.toLocaleString('ru-RU');
+function buildDashboard(rows) {
 
-    document.getElementById("sku").innerText =
-        skuSet.size.toLocaleString('ru-RU');
+    const trucks = {};
+    const asnMap = {};
 
-    document.getElementById("employees").innerText =
-        employeeSet.size.toLocaleString('ru-RU');
+    let totalASNQty = 0;
+    let totalFactQty = 0;
 
-    
-buildHorizontalTop10(
-    "employeeChart",
-    employeeQty
-);
+    rows.forEach(row => {
 
+        const truck = row["Машина"] || "Без машины";
+        const pallet = row["Паллет №"] || "Без паллеты";
+        const asn = row["ASNNumber"] || "Без ASN";
 
-    buildBar(
-        "hourChart",
-        hourQty,
-        "Количество"
-    );
+        const qty = Number(row["Qty ASN"] || 0);
+        const fact = Number(row["Факт"] || 0);
 
-    buildBar(
-        "dateChart",
-        dateQty,
-        "Количество"
-    );
+        totalASNQty += qty;
+        totalFactQty += fact;
 
-    buildHorizontalTop10(
-        "groupChart",
-        groupQty
-    );
+        if (!trucks[truck]) {
+            trucks[truck] = {};
+        }
 
-    buildHorizontalTop10(
-        "skuChart",
-        skuQtyMap
-    );
+        if (!trucks[truck][pallet]) {
+            trucks[truck][pallet] = {};
+        }
+
+        if (!trucks[truck][pallet][asn]) {
+            trucks[truck][pallet][asn] = {
+                qty: 0,
+                fact: 0,
+                priority: false,
+                items: 0
+            };
+        }
+
+        const priorityValue = String(row["Приоритет"] || "").toLowerCase();
+
+        trucks[truck][pallet][asn].qty += qty;
+        trucks[truck][pallet][asn].fact += fact;
+        trucks[truck][pallet][asn].items++;
+
+        if (
+            priorityValue === "да" ||
+            priorityValue === "1" ||
+            priorityValue === "true" ||
+            priorityValue === "yes"
+        ) {
+            trucks[truck][pallet][asn].priority = true;
+        }
+
+        asnMap[asn] = true;
+    });
+
+    document.getElementById("truckCount").textContent =
+        Object.keys(trucks).length;
+
+    document.getElementById("asnCount").textContent =
+        Object.keys(asnMap).length;
+
+    document.getElementById("overallAcceptance").textContent =
+        totalASNQty > 0
+        ? Math.round((totalFactQty / totalASNQty) * 100) + "%"
+        : "0%";
+
+    let palletCounter = 0;
+
+    Object.values(trucks).forEach(pallets => {
+        palletCounter += Object.keys(pallets).length;
+    });
+
+    document.getElementById("palletCount").textContent = palletCounter;
+
+    drawTruckChart(trucks);
+    drawPriorityChart(trucks);
+
+    const container = document.getElementById("dashboard");
+    container.innerHTML = "";
+
+    Object.entries(trucks).forEach(([truckName, pallets]) => {
+
+        let truckHtml = `
+            <div class="truck">
+                <div class="truck-header">🚚 ${truckName}</div>
+        `;
+
+        Object.entries(pallets).forEach(([palletName, asns]) => {
+
+            truckHtml += `
+                <div class="pallet">
+                    <div class="pallet-header">
+                        📦 Паллет: ${palletName}
+                    </div>
+            `;
+
+            Object.entries(asns).forEach(([asnNumber, asnData]) => {
+
+                const percent =
+                    asnData.qty > 0
+                    ? Math.min(100, Math.round((asnData.fact / asnData.qty) * 100))
+                    : 0;
+
+                let colorClass = "red";
+
+                if (percent >= 90) {
+                    colorClass = "green";
+                }
+                else if (percent >= 50) {
+                    colorClass = "orange";
+                }
+
+                truckHtml += `
+                    <div class="asn ${asnData.priority ? 'priority' : ''}">
+
+                        <div class="asn-title">
+
+                            <div>
+                                <strong>ASN:</strong> ${asnNumber}
+                            </div>
+
+                            ${asnData.priority
+                                ? '<span class="priority-badge">ПРИОРИТЕТ</span>'
+                                : ''
+                            }
+
+                        </div>
+
+                        <div class="progress">
+                            <div class="progress-bar ${colorClass}"
+                                 style="width:${percent}%">
+                                ${percent}%
+                            </div>
+                        </div>
+
+                        <div class="details">
+                            Qty ASN: ${asnData.qty.toLocaleString()} |
+                            Факт: ${asnData.fact.toLocaleString()}
+                        </div>
+
+                    </div>
+                `;
+
+            });
+
+            truckHtml += `</div>`;
+        });
+
+        truckHtml += `</div>`;
+
+        container.insertAdjacentHTML("beforeend", truckHtml);
+
+    });
+
 }
 
-function buildBar(canvasId,data,label){
+function drawTruckChart(trucks) {
 
-    new Chart(
-        document.getElementById(canvasId),
+    const labels = [];
+    const values = [];
+
+    Object.entries(trucks).forEach(([truck, pallets]) => {
+
+        let qty = 0;
+        let fact = 0;
+
+        Object.values(pallets).forEach(asns => {
+
+            Object.values(asns).forEach(item => {
+                qty += item.qty;
+                fact += item.fact;
+            });
+
+        });
+
+        labels.push(truck);
+
+        values.push(
+            qty > 0
+            ? Math.round((fact / qty) * 100)
+            : 0
+        );
+    });
+
+    if (truckChart) {
+        truckChart.destroy();
+    }
+
+    truckChart = new Chart(
+        document.getElementById("truckChart"),
         {
-            type:'bar',
-            data:{
-                labels:Object.keys(data),
-                datasets:[{
-                    label:label,
-                    data:Object.values(data)
+            type: "bar",
+            data: {
+                labels,
+                datasets: [{
+                    label: "% приемки по машинам",
+                    data: values
                 }]
             },
-            options:{
-                responsive:true
+            options: {
+                responsive: true,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        max: 100
+                    }
+                }
             }
         }
     );
 }
 
-function buildHorizontalTop10(id,data){
+function drawPriorityChart(trucks) {
 
-    const sorted =
-        Object.entries(data)
-            .sort((a,b)=>b[1]-a[1])
-            .slice(0,10);
+    let priority = 0;
+    let usual = 0;
 
-    new Chart(
-        document.getElementById(id),
+    Object.values(trucks).forEach(pallets => {
+
+        Object.values(pallets).forEach(asns => {
+
+            Object.values(asns).forEach(item => {
+
+                if (item.priority) {
+                    priority++;
+                } else {
+                    usual++;
+                }
+
+            });
+
+        });
+
+    });
+
+    if (priorityChart) {
+        priorityChart.destroy();
+    }
+
+    priorityChart = new Chart(
+        document.getElementById("priorityChart"),
         {
-            type:'bar',
-            data:{
-                labels:sorted.map(x=>x[0]),
-                datasets:[{
-                    data:sorted.map(x=>x[1])
+            type: "doughnut",
+            data: {
+                labels: ["Приоритетные ASN", "Обычные ASN"],
+                datasets: [{
+                    data: [priority, usual],
+                    backgroundColor: [
+                        "#e53935",
+                        "#4caf50"
+                    ]
                 }]
-            },
-            options:{
-                indexAxis:'y',
-                responsive:true
             }
         }
     );
 }
-
-loadData();
 
 </script>
 
