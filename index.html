@@ -3,10 +3,13 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ASN 07.07.2026 23-29 </title>
+<title>ASN 07.07.2026 23-35 </title>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<!--<script src="https://cdn.jsdelivr.net/npm/chart.js"></script> -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
+
+   
 <style>
     * {
         margin: 0;
@@ -198,31 +201,67 @@
 <div id="dashboard"></div>
 
 
+
 <script>
 
 let truckChart = null;
 let priorityChart = null;
 
+function parseCSV(text) {
+
+    const lines = text.trim().split(/\r?\n/);
+
+    if (lines.length < 2) {
+        return [];
+    }
+
+    const separator =
+        (lines[0].match(/;/g) || []).length >
+        (lines[0].match(/,/g) || []).length
+            ? ';'
+            : ',';
+
+    const headers = lines[0]
+        .split(separator)
+        .map(h => h.trim().replace(/^"|"$/g, ''));
+
+    const rows = [];
+
+    for (let i = 1; i < lines.length; i++) {
+
+        const values = lines[i]
+            .split(separator)
+            .map(v => v.trim().replace(/^"|"$/g, ''));
+
+        const row = {};
+
+        headers.forEach((header, index) => {
+            row[header] = values[index] || '';
+        });
+
+        rows.push(row);
+    }
+
+    return rows;
+}
+
 fetch('./asn.csv')
 .then(response => response.text())
 .then(csv => {
 
-    Papa.parse(csv, {
-        header: true,
-        skipEmptyLines: true,
-        complete: function(result) {
-            buildDashboard(result.data);
-        }
-    });
+    const data = parseCSV(csv);
+    buildDashboard(data);
 
 })
 .catch(error => {
+
     document.body.innerHTML += `
         <div style="color:red;padding:20px">
             Не удалось загрузить файл asn.csv<br>
             ${error}
         </div>
     `;
+
 });
 
 function buildDashboard(rows) {
