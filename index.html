@@ -4,9 +4,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Inbound Dashboard 07.07.2026 17:53 </title>
+<title>Inbound Dashboard 07.07.2026 18:05 </title>
 
-https://cdn.jsdelivr.net/npm/chart.jsscript>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"</script>
 
 <style>
 body{
@@ -207,11 +207,12 @@ async function loadData(){
     document.getElementById("employees").innerText =
         employeeSet.size.toLocaleString('ru-RU');
 
-    buildBar(
-        "employeeChart",
-        employeeQty,
-        "Количество"
-    );
+    
+buildHorizontalTop10(
+    "employeeChart",
+    employeeQty
+);
+
 
     buildBar(
         "hourChart",
