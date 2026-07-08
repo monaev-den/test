@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Отгрузки — 08.07 14-09 </title>
+<title>Отгрузки —  08.07 15-09 </title>
 
 <!--
   ============================================================================
@@ -596,10 +596,20 @@ function extractCity(address) {
   return 'Не указан';
 }
 
-/** Округление часов до 1 знака после запятой, для читаемости. */
+/** Разница между двумя датами в часах (может быть отрицательной, если a позже b). */
 function hoursBetween(a, b) {
   return (b.getTime() - a.getTime()) / 3600000;
 }
+
+/**
+ * Допуск ("grace period") для KPI "вовремя".
+ * Если "Передача в доставку" превышает "Плановую дату отгрузки" менее
+ * чем на это значение (в часах) — заказ всё равно считается отгруженным
+ * ВОВРЕМЯ, а не просрочкой. Бизнес-правило: опоздание до 30 минут
+ * не считается проблемой склада.
+ * Чтобы изменить порог — поменяйте только это значение.
+ */
+const ON_TIME_GRACE_HOURS = 30 / 60; // 30 минут = 0.5 часа
 
 function fmtDate(d) {
   if (!d) return '—';
@@ -650,15 +660,21 @@ async function loadData() {
       const createdAt   = parseRuDate(r[COL.CREATED_AT]);
 
       // --- Ключевая логика KPI "вовремя / просрочено / под риском" ---
+      // Допуск (grace period): если "Передача в доставку" превышает
+      // "Плановую дату отгрузки" менее чем на ON_TIME_GRACE_HOURS —
+      // заказ всё равно считается ВОВРЕМЯ. Константа задана в БЛОКЕ 1
+      // выше (ON_TIME_GRACE_HOURS = 30 / 60 часа).
       let onTimeStatus = 'no-data'; // no-data | on-time | late | at-risk
       let delayHours = null;
       if (planShip && handedOver) {
         delayHours = hoursBetween(planShip, handedOver); // >0 значит опоздали
-        onTimeStatus = delayHours <= 0 ? 'on-time' : 'late';
+        onTimeStatus = delayHours <= ON_TIME_GRACE_HOURS ? 'on-time' : 'late';
       } else if (planShip && !handedOver) {
         // Заказ ещё не передан в доставку. Если плановая дата уже в прошлом
         // относительно "сейчас" (момента открытия дашборда) — это риск.
-        onTimeStatus = planShip.getTime() < Date.now() ? 'at-risk' : 'no-data';
+        // Допуск здесь тоже применяется: план, "просроченный" менее чем
+        // на 30 минут, ещё не считаем риском.
+        onTimeStatus = hoursBetween(planShip, new Date()) > ON_TIME_GRACE_HOURS ? 'at-risk' : 'no-data';
       }
 
       return {
