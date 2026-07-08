@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Дашборд 08.07 0-45</title>
+<title>Дашборд 08.07 9-30</title>
 
 <!-- ==========================================================================
      ШРИФТЫ
@@ -969,7 +969,7 @@
   function renderMachines(machines) {
     const root = document.getElementById('machinesRoot');
     // Сортировка по убыванию номера машины (последняя приехавшая — сверху), как в примере.
-    const sorted = [...machines.values()].sort((a, b) => b.id.localeCompare(a.id));
+    const sorted = [...machines.values()].sort((a, b) => a.id.localeCompare(b.id));
 
     document.getElementById('machineCountLabel').textContent = sorted.length + ' машин(ы)';
 
