@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Отгрузки 08.07 13-30</title>
+<title>Отгрузки — 08.07 14-09 </title>
 
 <!--
   ============================================================================
@@ -31,11 +31,22 @@
 
 <!-- Библиотека для чтения / парсинга CSV с учётом кавычек, ; как разделителя и BOM -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script>
+  // Подстраховка: если cdnjs недоступен, подгружаем PapaParse с jsDelivr.
+  if (typeof Papa === 'undefined') {
+    document.write('<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></scr' + 'ipt>');
+  }
+</script>
 <!-- Библиотека графиков -->
-<!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script> -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@latest/dist/chart.umd.min.js"></script>
+<script>
+  // Подстраховка: если jsDelivr недоступен, подгружаем Chart.js с cdnjs.
+  if (typeof Chart === 'undefined') {
+    document.write('<scr' + 'ipt src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></scr' + 'ipt>');
+  }
+</script>
 
-  <style>
+<style>
 /* ==========================================================================
    ТОКЕНЫ ДИЗАЙНА
    Палитра "диспетчерская склада": тёмно-синяя база + светофорные статусы.
@@ -262,6 +273,65 @@ thead th{
   text-transform:uppercase; color:var(--text-dim); border-bottom:1px solid var(--line);
   white-space:nowrap;
 }
+
+/* Панель фильтров над таблицей: поиск + выбор статуса + сброс */
+.table-filters{
+  display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+  margin-bottom:12px;
+}
+.filter-input, .filter-select{
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--text);
+  font-family:var(--font-display);
+  font-size:12.5px;
+  border-radius:8px;
+  padding:8px 12px;
+  outline:none;
+  transition:border-color .15s;
+}
+.filter-input{ flex:1; min-width:200px; }
+.filter-input::placeholder{ color:var(--text-faint); }
+.filter-input:focus, .filter-select:focus{ border-color:var(--blue); }
+.filter-select{ cursor:pointer; }
+.filter-reset{
+  background:transparent;
+  border:1px solid var(--line);
+  color:var(--text-dim);
+  font-family:var(--font-display);
+  font-size:12px;
+  border-radius:8px;
+  padding:8px 14px;
+  cursor:pointer;
+  transition:all .15s;
+}
+.filter-reset:hover{ border-color:var(--bad); color:var(--bad); }
+
+/* Заголовки таблицы кликабельны — курсор и hover сигнализируют об этом.
+   Стрелка сортировки (▲/▼) добавляется через ::after на активной колонке. */
+thead th[data-sort-key]{
+  cursor:pointer;
+  user-select:none;
+  transition:color .15s;
+}
+thead th[data-sort-key]:hover{ color:var(--text); }
+thead th[data-sort-key].sort-active{ color:var(--blue); }
+thead th[data-sort-key]::after{
+  content:'';
+  display:inline-block;
+  margin-left:5px;
+  font-size:9px;
+  opacity:.5;
+}
+thead th[data-sort-key].sort-asc::after{ content:'▲'; opacity:1; }
+thead th[data-sort-key].sort-desc::after{ content:'▼'; opacity:1; }
+
+/* Строка "ничего не найдено" при пустом результате фильтрации */
+.table-empty-row td{
+  text-align:center; color:var(--text-faint); padding:28px 10px !important;
+  font-style:italic;
+}
+
 tbody td{ padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; color:var(--text); }
 tbody tr:hover{ background:var(--panel-2); }
 td.num, th.num{ font-family:var(--font-mono); text-align:right; }
@@ -414,23 +484,39 @@ footer{
       <div class="table-card-head">
         <div>
           <h3>Проблемные заказы</h3>
-          <div class="chart-desc">Просроченные и зависшие в обработке — отсортировано по критичности</div>
+          <div class="chart-desc">Просроченные и зависшие в обработке — кликните на заголовок колонки для сортировки</div>
         </div>
         <span class="badge badge-bad" id="problem-count-badge">0 заказов</span>
       </div>
+
+      <!-- Панель фильтров: текстовый поиск по заказу/контрагенту/городу/сборщику
+           + выпадающий список по статусу (Просрочен / Под риском / Все) -->
+      <div class="table-filters">
+        <input type="text" id="problem-search" class="filter-input"
+               placeholder="Поиск: № заказа, контрагент, город, сборщик…">
+        <select id="problem-status-filter" class="filter-select">
+          <option value="all">Все статусы</option>
+          <option value="late">Только просроченные</option>
+          <option value="at-risk">Только под риском</option>
+        </select>
+        <button type="button" id="problem-filters-reset" class="filter-reset">Сбросить</button>
+      </div>
+
       <div class="table-scroll">
         <table>
           <thead>
             <tr>
-              <th>№ заказа</th>
-              <th>Контрагент</th>
-              <th>Город</th>
-              <th>Статус</th>
-              <th>Плановая отгрузка</th>
-              <th>Передача в доставку</th>
-              <th class="num">Просрочка, ч</th>
-              <th>Сборщик</th>
-              <th class="num">Шт.</th>
+              <!-- data-sort-key соответствует ключу в объекте заказа (JS),
+                   data-sort-type определяет, как сравнивать значения при сортировке -->
+              <th data-sort-key="orderNo"    data-sort-type="text">№ заказа</th>
+              <th data-sort-key="contragent" data-sort-type="text">Контрагент</th>
+              <th data-sort-key="city"       data-sort-type="text">Город</th>
+              <th data-sort-key="onTimeStatus" data-sort-type="text">Статус</th>
+              <th data-sort-key="planShip"   data-sort-type="date">Плановая отгрузка</th>
+              <th data-sort-key="handedOver" data-sort-type="date">Передача в доставку</th>
+              <th data-sort-key="riskHours"  data-sort-type="number" class="num">Просрочка, ч</th>
+              <th data-sort-key="picker"     data-sort-type="text">Сборщик</th>
+              <th data-sort-key="qtyPieces"  data-sort-type="number" class="num">Шт.</th>
             </tr>
           </thead>
           <tbody id="problem-table-body"><!-- заполняется JS --></tbody>
@@ -986,11 +1072,111 @@ function renderSizesChart(a) {
   });
 }
 
-function renderProblemsTable(a) {
-  const rows = a.problems.slice(0, 150); // ограничиваем вывод, чтобы не тормозить DOM
-  document.getElementById('problem-count-badge').textContent = `${fmtInt(a.problems.length)} заказов`;
+/* ----------------------------------------------------------------------
+   Таблица "Проблемные заказы": сортировка по клику на заголовок +
+   фильтрация по тексту и по статусу.
 
-  document.getElementById('problem-table-body').innerHTML = rows.map(r => {
+   Подход: полный список проблемных заказов (a.problems) сохраняется
+   в переменной верхнего уровня (problemsState.all). Любое действие
+   пользователя (клик по заголовку, ввод в поиск, смена статуса) не
+   пересчитывает аналитику заново — просто заново отрисовывает таблицу
+   из уже готового массива с применёнными filter/sort. Это быстро даже
+   на тысячах строк, т.к. вся тяжёлая работа (парсинг CSV, агрегации)
+   была сделана один раз в computeAnalytics().
+   ---------------------------------------------------------------------- */
+
+// Состояние таблицы: исходные данные + текущие фильтры/сортировка.
+const problemsState = {
+  all: [],                 // полный список проблемных заказов (не мутируется)
+  sortKey: 'riskHours',    // по какому полю сортируем
+  sortDir: 'desc',         // 'asc' | 'desc'
+  searchText: '',          // текст из поля поиска (уже в нижнем регистре)
+  statusFilter: 'all',     // 'all' | 'late' | 'at-risk'
+};
+
+const MAX_PROBLEM_ROWS = 150; // ограничение вывода в DOM ради производительности
+
+/** Возвращает значение поля строки, приведённое к сравнимому виду для сортировки. */
+function getSortValue(row, key, type) {
+  const v = row[key];
+  if (type === 'date') return v ? v.getTime() : -Infinity;
+  if (type === 'number') return typeof v === 'number' ? v : -Infinity;
+  // текстовое сравнение — без учёта регистра
+  return (v === null || v === undefined ? '' : String(v)).toLowerCase();
+}
+
+/** Применяет текущие фильтры (поиск + статус) к полному списку проблем. */
+function applyProblemFilters(list) {
+  let result = list;
+
+  if (problemsState.statusFilter !== 'all') {
+    result = result.filter(r => r.onTimeStatus === problemsState.statusFilter);
+  }
+
+  if (problemsState.searchText) {
+    const q = problemsState.searchText;
+    // Ищем совпадение сразу по нескольким полям — так фильтр полезен и для
+    // "найти заказ по номеру", и для "показать всё по этому сборщику/городу".
+    result = result.filter(r =>
+      String(r.orderNo).toLowerCase().includes(q) ||
+      r.contragent.toLowerCase().includes(q) ||
+      r.city.toLowerCase().includes(q) ||
+      r.picker.toLowerCase().includes(q)
+    );
+  }
+
+  return result;
+}
+
+/** Сортирует список проблем согласно problemsState.sortKey/sortDir. */
+function applyProblemSort(list) {
+  const { sortKey, sortDir } = problemsState;
+  const type = document
+    .querySelector(`th[data-sort-key="${sortKey}"]`)
+    ?.dataset.sortType || 'text';
+  const dirMul = sortDir === 'asc' ? 1 : -1;
+
+  return [...list].sort((a, b) => {
+    const va = getSortValue(a, sortKey, type);
+    const vb = getSortValue(b, sortKey, type);
+    if (va < vb) return -1 * dirMul;
+    if (va > vb) return 1 * dirMul;
+    return 0;
+  });
+}
+
+/** Обновляет визуальные стрелки сортировки в заголовках таблицы. */
+function updateSortHeaders() {
+  document.querySelectorAll('th[data-sort-key]').forEach(th => {
+    th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
+    if (th.dataset.sortKey === problemsState.sortKey) {
+      th.classList.add('sort-active', problemsState.sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+}
+
+/** Полная перерисовка тела таблицы: фильтр -> сортировка -> HTML. */
+function redrawProblemsTable() {
+  const filtered = applyProblemFilters(problemsState.all);
+  const sorted = applyProblemSort(filtered);
+  const rows = sorted.slice(0, MAX_PROBLEM_ROWS);
+
+  // Бейдж всегда показывает количество СЕЙЧАС ВИДИМЫХ (после фильтра) заказов,
+  // а не общее число проблем — это то, что реально ждёт руководителя на экране.
+  const badge = document.getElementById('problem-count-badge');
+  badge.textContent = filtered.length === problemsState.all.length
+    ? `${fmtInt(filtered.length)} заказов`
+    : `${fmtInt(filtered.length)} из ${fmtInt(problemsState.all.length)}`;
+
+  const tbody = document.getElementById('problem-table-body');
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="9">Ничего не найдено — попробуйте изменить фильтр</td></tr>`;
+    updateSortHeaders();
+    return;
+  }
+
+  tbody.innerHTML = rows.map(r => {
     const isLate = r.onTimeStatus === 'late';
     const pillClass = isLate ? 'pill-bad' : 'pill-warn';
     const pillText = isLate ? 'Просрочен' : 'Под риском';
@@ -1007,6 +1193,54 @@ function renderProblemsTable(a) {
         <td class="num">${fmtInt(r.qtyPieces)}</td>
       </tr>`;
   }).join('');
+
+  updateSortHeaders();
+}
+
+/** Навешивает обработчики на заголовки (сортировка), поиск и селект статуса. */
+function bindProblemsTableControls() {
+  // Клик по заголовку: тот же ключ -> переключаем направление;
+  // новый ключ -> сортируем по нему по убыванию (самое критичное сверху).
+  document.querySelectorAll('th[data-sort-key]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sortKey;
+      if (problemsState.sortKey === key) {
+        problemsState.sortDir = problemsState.sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        problemsState.sortKey = key;
+        problemsState.sortDir = 'desc';
+      }
+      redrawProblemsTable();
+    });
+  });
+
+  // Поиск: debounce не нужен — датасет умещается в память, фильтрация мгновенная.
+  document.getElementById('problem-search').addEventListener('input', e => {
+    problemsState.searchText = e.target.value.trim().toLowerCase();
+    redrawProblemsTable();
+  });
+
+  document.getElementById('problem-status-filter').addEventListener('change', e => {
+    problemsState.statusFilter = e.target.value;
+    redrawProblemsTable();
+  });
+
+  document.getElementById('problem-filters-reset').addEventListener('click', () => {
+    problemsState.searchText = '';
+    problemsState.statusFilter = 'all';
+    problemsState.sortKey = 'riskHours';
+    problemsState.sortDir = 'desc';
+    document.getElementById('problem-search').value = '';
+    document.getElementById('problem-status-filter').value = 'all';
+    redrawProblemsTable();
+  });
+}
+
+/** Точка входа для блока таблицы: принимает готовую аналитику один раз. */
+function renderProblemsTable(a) {
+  problemsState.all = a.problems; // сохраняем полный список для фильтров/сортировки
+  bindProblemsTableControls();    // обработчики вешаем один раз при первой отрисовке
+  redrawProblemsTable();          // и сразу рисуем таблицу в состоянии по умолчанию
 }
 
 /* ============================================================================
