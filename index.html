@@ -3,551 +3,957 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Winbound 08.07 10-19</title>
+<title>On-Dock 08.07 12-21</title>
 
-<!-- Chart.js -->
+<!-- Chart.js подключаем с CDN для построения графиков -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-     
 <style>
-    *{
-        margin:0;
-        padding:0;
-        box-sizing:border-box;
-        font-family:Segoe UI, Arial, sans-serif;
-    }
+  /* =========================================================
+     ДИЗАЙН-ТОКЕНЫ
+     Тема: складская логистика / доковая приёмка.
+     Идея: тёмный "асфальт погрузочной рампы" + цвет
+     сигнальной разметки склада (индустриальный янтарный)
+     как акцент для проблемных зон, и холодный циан для
+     нормального потока — как светодиодные индикаторы
+     на терминалах сбора данных (ТСД).
+     ========================================================= */
+  :root{
+    --ink:        #12161c;   /* фон-асфальт */
+    --panel:      #181d25;   /* панели */
+    --panel-2:    #1f2530;   /* вложенные панели / hover */
+    --line:       #2a313d;   /* тонкие разделители */
+    --text:       #e8ecf1;   /* основной текст */
+    --text-dim:   #8b95a3;   /* второстепенный текст */
+    --amber:      #f2a340;   /* сигнальный янтарный — риск/просрочка */
+    --amber-dim:  #f2a34022;
+    --cyan:       #4fd1c5;   /* холодный циан — норма/в срок */
+    --cyan-dim:   #4fd1c522;
+    --red:        #ef5b5b;   /* критично просрочено */
+    --red-dim:    #ef5b5b22;
+    --violet:     #8b8fe8;   /* нейтральные акценты в графиках */
 
-    body{
-        background:#f4f6f9;
-        padding:20px;
-        color:#333;
-    }
+    --font-display: "Bahnschrift", "DIN Alternate", "Segoe UI Semibold", system-ui, sans-serif;
+    --font-body: "Segoe UI", "Inter", system-ui, -apple-system, sans-serif;
+    --font-mono: "Cascadia Mono", "SFMono-Regular", Consolas, monospace;
+  }
 
-    h1{
-        margin-bottom:20px;
-        color:#1f2937;
-    }
+  *{ box-sizing: border-box; }
 
-    .dashboard{
-        display:grid;
-        grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-        gap:20px;
-    }
+  body{
+    margin:0;
+    background:
+      /* тонкая "разметка рампы" — диагональные полосы едва видны */
+      repeating-linear-gradient(135deg, transparent 0 40px, #ffffff05 40px 41px),
+      var(--ink);
+    color: var(--text);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+  }
 
-    .card{
-        background:white;
-        border-radius:12px;
-        padding:20px;
-        box-shadow:0 2px 8px rgba(0,0,0,0.08);
-    }
+  /* ---------- Шапка ---------- */
+  header{
+    padding: 28px clamp(16px,4vw,48px) 20px;
+    border-bottom: 1px solid var(--line);
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-end;
+    flex-wrap:wrap;
+    gap:16px;
+  }
+  .eyebrow{
+    font-family: var(--font-mono);
+    letter-spacing:.18em;
+    text-transform:uppercase;
+    font-size:11px;
+    color: var(--amber);
+    margin:0 0 8px;
+  }
+  h1{
+    font-family: var(--font-display);
+    font-weight:700;
+    font-size: clamp(22px, 3vw, 32px);
+    margin:0;
+    letter-spacing:-.01em;
+  }
+  h1 span{ color: var(--text-dim); font-weight:400; }
+  .header-meta{
+    font-family: var(--font-mono);
+    font-size:12px;
+    color: var(--text-dim);
+    text-align:right;
+    line-height:1.6;
+  }
+  .header-meta b{ color: var(--text); }
 
-    .card h3{
-        margin-bottom:15px;
-        font-size:16px;
-        color:#374151;
-    }
+  main{
+    padding: 24px clamp(16px,4vw,48px) 60px;
+    max-width: 1440px;
+    margin: 0 auto;
+  }
 
-    .kpi{
-        display:flex;
-        flex-direction:column;
-        justify-content:center;
-        align-items:center;
-        min-height:130px;
-    }
+  /* ---------- KPI-плашки ---------- */
+  .kpi-row{
+    display:grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px,1fr));
+    gap:14px;
+    margin-bottom: 22px;
+  }
+  .kpi{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 16px 18px;
+    position:relative;
+    overflow:hidden;
+  }
+  .kpi::before{
+    /* индикаторная полоса слева, как статусный светодиод ТСД */
+    content:"";
+    position:absolute; left:0; top:0; bottom:0; width:3px;
+    background: var(--cyan);
+  }
+  .kpi.warn::before{ background: var(--amber); }
+  .kpi.crit::before{ background: var(--red); }
+  .kpi-label{
+    font-family: var(--font-mono);
+    font-size:10.5px;
+    letter-spacing:.1em;
+    text-transform:uppercase;
+    color: var(--text-dim);
+    margin:0 0 10px;
+  }
+  .kpi-value{
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight:700;
+    line-height:1;
+  }
+  .kpi-sub{
+    font-size:12px;
+    color: var(--text-dim);
+    margin-top:6px;
+  }
 
-    .kpi-value{
-        font-size:36px;
-        font-weight:bold;
-        color:#2563eb;
-    }
+  /* ---------- Сетка панелей с графиками ---------- */
+  .grid{
+    display:grid;
+    grid-template-columns: 1.3fr .7fr;
+    gap:16px;
+    margin-bottom:16px;
+  }
+  .grid.cols-2{ grid-template-columns: 1fr 1fr; }
+  .grid.cols-3{ grid-template-columns: repeat(3, 1fr); }
+  @media (max-width: 920px){
+    .grid, .grid.cols-2, .grid.cols-3{ grid-template-columns: 1fr; }
+  }
 
-    .kpi-label{
-        margin-top:6px;
-        color:#6b7280;
-    }
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 18px 20px 12px;
+    min-width:0; /* чтобы canvas не распирал grid */
+  }
+  .panel-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    margin-bottom: 14px;
+    gap:10px;
+    flex-wrap:wrap;
+  }
+  .panel-title{
+    font-family: var(--font-display);
+    font-weight:700;
+    font-size: 14.5px;
+    margin:0;
+  }
+  .panel-note{
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-dim);
+  }
+  .chart-wrap{ position:relative; }
 
-    canvas{
-        max-height:350px;
-    }
+  /* ---------- Таблица машин ---------- */
+  table{
+    width:100%;
+    border-collapse:collapse;
+    font-size:13px;
+  }
+  thead th{
+    text-align:left;
+    font-family: var(--font-mono);
+    font-size:10.5px;
+    letter-spacing:.06em;
+    text-transform:uppercase;
+    color: var(--text-dim);
+    font-weight:600;
+    padding:8px 10px;
+    border-bottom:1px solid var(--line);
+    white-space:nowrap;
+  }
+  tbody td{
+    padding:9px 10px;
+    border-bottom:1px solid var(--line);
+    vertical-align:middle;
+  }
+  tbody tr:hover{ background: var(--panel-2); }
+  .truck-id{ font-family: var(--font-mono); font-weight:700; color:var(--text); }
+  .pill{
+    display:inline-block;
+    padding:2px 9px;
+    border-radius:99px;
+    font-family: var(--font-mono);
+    font-size:11px;
+    font-weight:600;
+  }
+  .pill.ok{   background: var(--cyan-dim);  color: var(--cyan); }
+  .pill.warn{ background: var(--amber-dim); color: var(--amber); }
+  .pill.crit{ background: var(--red-dim);   color: var(--red); }
+  .bar-cell{ min-width:140px; }
+  .bar-track{
+    background: var(--panel-2);
+    border-radius: 3px;
+    height: 8px;
+    overflow:hidden;
+  }
+  .bar-fill{ height:100%; border-radius:3px; }
 
-    table{
-        width:100%;
-        border-collapse:collapse;
-        font-size:13px;
-    }
+  footer{
+    text-align:center;
+    padding: 20px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    border-top: 1px solid var(--line);
+  }
 
-    th{
-        background:#eef2ff;
-        text-align:left;
-        padding:10px;
-        border-bottom:1px solid #ddd;
-    }
-
-    td{
-        padding:8px;
-        border-bottom:1px solid #eee;
-    }
-
-    tr:hover{
-        background:#f8fafc;
-    }
-
-    .status-good{
-        color:#16a34a;
-        font-weight:bold;
-    }
-
-    .status-bad{
-        color:#dc2626;
-        font-weight:bold;
-    }
-
-    .wide{
-        grid-column:1 / -1;
-    }
-
-    .loader{
-        text-align:center;
-        padding:50px;
-        font-size:18px;
-    }
+  /* Состояние загрузки / ошибки */
+  #status-banner{
+    margin: 24px clamp(16px,4vw,48px) 0;
+    padding: 14px 18px;
+    border-radius:6px;
+    font-family: var(--font-mono);
+    font-size:13px;
+    display:none;
+  }
+  #status-banner.show{ display:block; }
+  #status-banner.error{ background: var(--red-dim); color: var(--red); border:1px solid var(--red); }
+  #status-banner.loading{ background: var(--panel); color: var(--text-dim); border:1px solid var(--line); }
 </style>
 </head>
 <body>
 
-<h1>📦 Dashboard — Аналитика приемки товара на склад</h1>
+<header>
+  <div>
+    <p class="eyebrow">Приёмный терминал · Дэшборд Дока</p>
+    <h1>On-Dock Leadtime <span>— скорость приёмки машин на складе</span></h1>
+  </div>
+  <div class="header-meta">
+    Источник: <b>time.csv</b><br>
+    Обновлено: <b id="meta-updated">—</b>
+  </div>
+</header>
 
-<div id="loader" class="loader">
-    Загрузка данных...
-</div>
+<div id="status-banner" class="loading show">Загружаю time.csv…</div>
 
-<div id="dashboard" class="dashboard" style="display:none;">
+<main id="main" style="display:none;">
 
-    <!-- KPI -->
-    <div class="card kpi">
-        <div id="totalTrucks" class="kpi-value">0</div>
-        <div class="kpi-label">Машин</div>
+  <!-- KPI -->
+  <section class="kpi-row" id="kpi-row"></section>
+
+  <!-- Верхний ряд: длительность приёмки по машинам + сводка по статусам -->
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Время приёмки по машине (On-Dock Leadtime)</h2>
+        <span class="panel-note">часы от прибытия машины до завершения приёмки последнего SKU</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-truck-leadtime" height="260"></canvas></div>
     </div>
-
-    <div class="card kpi">
-        <div id="avgLeadTime" class="kpi-value">0</div>
-        <div class="kpi-label">Среднее время приемки (дней)</div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Статус SKU-позиций</h2>
+        <span class="panel-note">по количеству строк ASN</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-status-donut" height="260"></canvas></div>
     </div>
+  </section>
 
-    <div class="card kpi">
-        <div id="completionRate" class="kpi-value">0%</div>
-        <div class="kpi-label">Средний % приемки</div>
+  <!-- Второй ряд: план vs факт по количеству, и остатки к приёмке -->
+  <section class="grid cols-2">
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">План vs Факт по машинам, шт.</h2>
+        <span class="panel-note">заявлено в ASN / фактически принято</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-plan-fact" height="230"></canvas></div>
     </div>
-
-    <div class="card kpi">
-        <div id="openSku" class="kpi-value">0</div>
-        <div class="kpi-label">Незавершенных SKU</div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Незавершённый остаток по SKU</h2>
+        <span class="panel-note">топ позиций с наибольшим "осталось принять"</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-remaining" height="230"></canvas></div>
     </div>
+  </section>
 
-    <!-- График времени приемки машин -->
-    <div class="card">
-        <h3>Время приемки по машинам</h3>
-        <canvas id="truckLeadChart"></canvas>
+  <!-- Третий ряд: динамика во времени -->
+  <section class="grid">
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Хронология приёмки: старт SKU по дням</h2>
+        <span class="panel-note">сколько строк SKU начали принимать в каждый день</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-timeline" height="240"></canvas></div>
     </div>
-
-    <!-- Прогресс машин -->
-    <div class="card">
-        <h3>% принятого объема по машине</h3>
-        <canvas id="truckCompletionChart"></canvas>
+    <div class="panel">
+      <div class="panel-head">
+        <h2 class="panel-title">Приоритет vs скорость</h2>
+        <span class="panel-note">Leadtime по завершённым SKU, час · приоритет партии</span>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-priority-scatter" height="240"></canvas></div>
     </div>
+  </section>
 
-    <!-- Приоритет -->
-    <div class="card">
-        <h3>Объем по приоритетам</h3>
-        <canvas id="priorityChart"></canvas>
+  <!-- Таблица по машинам -->
+  <section class="panel" style="margin-bottom:16px;">
+    <div class="panel-head">
+      <h2 class="panel-title">Сводка по машинам (рейсам)</h2>
+      <span class="panel-note">клик по строке — не требуется, сортировка по убыванию времени приёмки</span>
     </div>
-
-    <!-- Принято / Осталось -->
-    <div class="card">
-        <h3>Принято против остатка</h3>
-        <canvas id="volumeChart"></canvas>
+    <div style="overflow-x:auto;">
+      <table id="truck-table">
+        <thead>
+          <tr>
+            <th>Машина</th>
+            <th>Дата прибытия</th>
+            <th>Паллет</th>
+            <th>ASN</th>
+            <th>SKU-строк</th>
+            <th>Заявлено, шт</th>
+            <th>Принято, шт</th>
+            <th>Осталось, шт</th>
+            <th>Прогресс</th>
+            <th>Leadtime, ч</th>
+            <th>Статус</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
+  </section>
 
-    <!-- Складская загрузка по дням -->
-    <div class="card wide">
-        <h3>Динамика приемки SKU по дням</h3>
-        <canvas id="timelineChart"></canvas>
-    </div>
+</main>
 
-    <!-- Таблица -->
-    <div class="card wide">
-        <h3>Рейтинг машин по скорости приемки</h3>
-        <table id="truckTable">
-            <thead>
-                <tr>
-                    <th>Машина</th>
-                    <th>SKU</th>
-                    <th>Всего ASN</th>
-                    <th>Принято</th>
-                    <th>% приемки</th>
-                    <th>Время приемки</th>
-                    <th>Статус</th>
-                </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </div>
-
-</div>
+<footer>Дэшборд считается локально в браузере из time.csv · без передачи данных на сервер</footer>
 
 <script>
+/* =========================================================================
+   ДЭШБОРД ПРИЁМКИ СКЛАДА
+   -------------------------------------------------------------------------
+   Общая логика:
+   1. fetch() читает time.csv (файл лежит рядом с index.html).
+   2. Разбираем CSV вручную (без сторонних библиотек вроде PapaParse) —
+      формат простой, разделитель ";", кавычек в данных нет.
+   3. Строим массив "строк приёмки" (по одной на пару ASN+SKU),
+      обогащённый распарсенными датами и вычисленными полями.
+   4. Группируем строки по машинам ("Рейс"), чтобы получить агрегаты:
+      план/факт/остаток, длительность приёмки, статус.
+   5. Рисуем графики через Chart.js и таблицу через обычный DOM.
+   ========================================================================= */
 
-/******************************************************************
- *  DASHBOARD ПРИЕМКИ ТОВАРА
- *
- *  Логика:
- *  1. При загрузке index.html читаем файл time.csv
- *  2. Парсим CSV вручную (без PapaParse)
- *  3. Строим аналитические показатели
- *  4. Отображаем графики и KPI менеджеру склада
- *
- ******************************************************************/
+// -------------------- 1. Константы и вспомогательные функции --------------------
 
-loadData();
+// Названия колонок в файле (после пропуска двух заголовочных строк)
+const COLS = {
+  TRUCK: 0,        // Номер машины (Внешний код) — "Рейс"
+  PALLET: 1,        // Номер паллеты (ШК ОС)
+  ASN: 2,        // ASN (Внутренний номер)
+  PRIORITY: 3,        // Приоритет
+  ARRIVAL_DATE: 4,        // Дата поступления на склад
+  SKU: 5,        // SKU
+  QTY_ASN: 6,        // Количество в ASN
+  QTY_DONE: 7,        // Количество принято
+  QTY_LEFT: 8,        // Количество осталось принять
+  START: 9,        // Начало приемки SKU
+  END: 10,       // Окончание приемки SKU
+  LEADTIME: 11        // Время приемки (On Dock Leadtime), часы
+};
 
 /**
- * Загрузка CSV файла, лежащего рядом с index.html
+ * Парсит дату в формате "ДД.ММ.ГГГГ" в объект Date.
+ * Возвращает null, если строка пустая или некорректная.
  */
-async function loadData(){
+function parseRuDate(str) {
+  if (!str) return null;
+  const s = str.trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+}
 
-    try{
+/** Разница в днях между двумя датами (date2 - date1). */
+function daysBetween(date1, date2) {
+  if (!date1 || !date2) return null;
+  const MS_DAY = 24 * 60 * 60 * 1000;
+  return Math.round((date2 - date1) / MS_DAY);
+}
 
-        const response = await fetch("time.csv");
+/** Безопасный парсинг целого числа (пустая строка -> 0). */
+function toInt(str) {
+  const n = parseInt(String(str).trim(), 10);
+  return Number.isFinite(n) ? n : 0;
+}
 
-        if(!response.ok){
-            throw new Error("Не удалось открыть time.csv");
-        }
+/** Форматирует дату обратно в ДД.ММ.ГГГГ для отображения. */
+function fmtDate(d) {
+  if (!d) return '—';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${d.getFullYear()}`;
+}
 
-        const csvText = await response.text();
+// -------------------- 2. Парсинг CSV без сторонних библиотек --------------------
 
-        const rows = parseCSV(csvText);
+/**
+ * Простой построчный парсер CSV с разделителем ";".
+ * В данном файле нет запятых/точек-с-запятой внутри полей и нет кавычек,
+ * поэтому достаточно split(';') по каждой строке — без экранирования.
+ */
+function parseCsv(text) {
+  // Разбиваем на строки, отбрасываем возможный BOM и пустые хвостовые строки
+  const lines = text
+    .replace(/^\uFEFF/, '')
+    .split(/\r?\n/)
+    .filter(line => line.trim().length > 0);
 
-        buildDashboard(rows);
+  // Первая строка — "Рейс;;;;;ASN;;;;;;" (группировка колонок, не нужна)
+  // Вторая строка — реальные заголовки колонок
+  // Начиная с третьей строки — данные
+  const dataLines = lines.slice(2);
 
-    }catch(error){
+  return dataLines.map(line => line.split(';'));
+}
 
-        document.getElementById("loader").innerHTML =
-            "<b>Ошибка загрузки файла time.csv</b><br>" + error.message;
+// -------------------- 3. Построение обогащённых строк приёмки --------------------
 
-        console.error(error);
+/**
+ * Из "сырых" ячеек CSV строит объект строки приёмки с распарсенными
+ * датами, числами и вычисленным статусом.
+ */
+function buildRow(cells) {
+  const arrival = parseRuDate(cells[COLS.ARRIVAL_DATE]);
+  const start = parseRuDate(cells[COLS.START]);
+  const end = parseRuDate(cells[COLS.END]);
+  const qtyAsn = toInt(cells[COLS.QTY_ASN]);
+  const qtyDone = toInt(cells[COLS.QTY_DONE]);
+  const qtyLeft = toInt(cells[COLS.QTY_LEFT]);
+  // Leadtime в файле указан в часах только для завершённых строк;
+  // если он не заполнен, но есть даты начала/окончания — досчитаем сами (в днях * 24).
+  let leadtimeHours = cells[COLS.LEADTIME] ? toInt(cells[COLS.LEADTIME]) : null;
+  if (leadtimeHours === null && arrival && end) {
+    const d = daysBetween(arrival, end);
+    leadtimeHours = d !== null ? d * 24 : null;
+  }
+
+  const isComplete = qtyLeft === 0 && qtyAsn > 0;
+
+  return {
+    truck: cells[COLS.TRUCK]?.trim() || '—',
+    pallet: cells[COLS.PALLET]?.trim() || '—',
+    asn: cells[COLS.ASN]?.trim() || '—',
+    priority: toInt(cells[COLS.PRIORITY]),
+    arrivalDate: arrival,
+    sku: cells[COLS.SKU]?.trim() || '—',
+    qtyAsn, qtyDone, qtyLeft,
+    startDate: start,
+    endDate: end,
+    leadtimeHours,
+    isComplete
+  };
+}
+
+/**
+ * Агрегирует строки приёмки по машинам (Рейс).
+ * Для каждой машины считаем: даты прибытия, суммы план/факт/остаток,
+ * количество паллет/ASN/SKU-строк, длительность приёмки и статус.
+ */
+function aggregateByTruck(rows) {
+  const map = new Map();
+
+  for (const r of rows) {
+    if (!map.has(r.truck)) {
+      map.set(r.truck, {
+        truck: r.truck,
+        arrivalDate: r.arrivalDate,
+        pallets: new Set(),
+        asns: new Set(),
+        skuRows: 0,
+        qtyAsn: 0,
+        qtyDone: 0,
+        qtyLeft: 0,
+        maxEndDate: null,
+        allComplete: true,
+        rows: []
+      });
     }
-}
+    const t = map.get(r.truck);
+    t.pallets.add(r.pallet);
+    t.asns.add(r.asn);
+    t.skuRows += 1;
+    t.qtyAsn += r.qtyAsn;
+    t.qtyDone += r.qtyDone;
+    t.qtyLeft += r.qtyLeft;
+    t.rows.push(r);
+    if (!r.isComplete) t.allComplete = false;
+    // самая ранняя дата прибытия машины среди её строк
+    if (r.arrivalDate && (!t.arrivalDate || r.arrivalDate < t.arrivalDate)) {
+      t.arrivalDate = r.arrivalDate;
+    }
+    // самая поздняя дата окончания приёмки среди SKU этой машины
+    if (r.endDate && (!t.maxEndDate || r.endDate > t.maxEndDate)) {
+      t.maxEndDate = r.endDate;
+    }
+  }
 
-/**
- * Парсер CSV без сторонних библиотек
- */
-function parseCSV(text){
+  // Досчитываем производные метрики по каждой машине
+  const trucks = [];
+  for (const t of map.values()) {
+    const leadtimeDays = daysBetween(t.arrivalDate, t.maxEndDate);
+    const leadtimeHours = leadtimeDays !== null ? leadtimeDays * 24 : null;
+    const progressPct = t.qtyAsn > 0 ? Math.round((t.qtyDone / t.qtyAsn) * 100) : 0;
 
-    const lines = text
-        .split(/\r?\n/)
-        .map(v => v.trim())
-        .filter(v => v.length);
-
-    // ищем строку заголовков
-    const headerIndex = lines.findIndex(line =>
-        line.includes("Номер машины")
-    );
-
-    const header = lines[headerIndex].split(";");
-
-    const data = [];
-
-    for(let i=headerIndex+1; i<lines.length; i++){
-
-        const cols = lines[i].split(";");
-
-        if(cols.length < 5) continue;
-
-        const row = {};
-
-        header.forEach((h,index)=>{
-            row[h.trim()] = (cols[index] || "").trim();
-        });
-
-        data.push(row);
+    // Статус машины: критично (не завершена и остаток большой), в работе, готово
+    let status = 'ok';
+    if (!t.allComplete) {
+      status = (t.qtyLeft / Math.max(t.qtyAsn, 1)) > 0.3 ? 'crit' : 'warn';
     }
 
-    return data;
+    trucks.push({
+      truck: t.truck,
+      arrivalDate: t.arrivalDate,
+      palletCount: t.pallets.size,
+      asnCount: t.asns.size,
+      skuRows: t.skuRows,
+      qtyAsn: t.qtyAsn,
+      qtyDone: t.qtyDone,
+      qtyLeft: t.qtyLeft,
+      maxEndDate: t.maxEndDate,
+      leadtimeHours,
+      progressPct,
+      allComplete: t.allComplete,
+      status,
+      rows: t.rows
+    });
+  }
+
+  // Сортируем по убыванию времени приёмки (самые долгие — наверху),
+  // машины без завершения (leadtime неизвестен) — тоже наверх, как требующие внимания
+  trucks.sort((a, b) => {
+    const av = a.leadtimeHours ?? Infinity;
+    const bv = b.leadtimeHours ?? Infinity;
+    return bv - av;
+  });
+
+  return trucks;
 }
 
-/**
- * Основная аналитика
- */
-function buildDashboard(data){
+// -------------------- 4. Цветовая палитра для графиков (в тон дизайну) --------------------
 
-    document.getElementById("loader").style.display = "none";
-    document.getElementById("dashboard").style.display = "grid";
+const PALETTE = {
+  amber: '#f2a340',
+  amberDim: 'rgba(242,163,64,0.35)',
+  cyan: '#4fd1c5',
+  cyanDim: 'rgba(79,209,197,0.35)',
+  red: '#ef5b5b',
+  redDim: 'rgba(239,91,91,0.35)',
+  violet: '#8b8fe8',
+  text: '#e8ecf1',
+  textDim: '#8b95a3',
+  grid: '#2a313d'
+};
 
-    const trucks = {};
+// Общие настройки осей/сетки, чтобы графики визуально совпадали с тёмной темой
+Chart.defaults.color = PALETTE.textDim;
+Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+Chart.defaults.font.size = 11.5;
 
-    let totalASN = 0;
-    let totalReceived = 0;
-    let totalRemaining = 0;
-
-    const timelineMap = {};
-
-    /**
-     * Группируем данные по машинам
-     */
-    data.forEach(row=>{
-
-        const truck = row["Номер машины (Внешний код)"];
-
-        const qtyASN =
-            Number(row["Количество в ASN "]) || 0;
-
-        const accepted =
-            Number(row["Количество принято"]) || 0;
-
-        const remaining =
-            Number(row["Количество осталось принять"]) || 0;
-
-        const lead =
-            Number(row["Время приемки (On Dock Leadtime) Время от поступления Машины на склад, до Максимальной даты окончания приемки SKU"]) || 0;
-
-        if(!trucks[truck]){
-            trucks[truck]={
-                sku:0,
-                asn:0,
-                accepted:0,
-                remaining:0,
-                maxLead:0
-            };
-        }
-
-        trucks[truck].sku++;
-        trucks[truck].asn += qtyASN;
-        trucks[truck].accepted += accepted;
-        trucks[truck].remaining += remaining;
-        trucks[truck].maxLead =
-            Math.max(trucks[truck].maxLead,lead);
-
-        totalASN += qtyASN;
-        totalReceived += accepted;
-        totalRemaining += remaining;
-
-        const startDate =
-            row["Начало приемки SKU"];
-
-        if(startDate){
-
-            timelineMap[startDate] =
-                (timelineMap[startDate] || 0) + 1;
-        }
-    });
-
-    /*
-     KPI
-     */
-
-    const truckIds = Object.keys(trucks);
-
-    const avgLead =
-        truckIds.reduce(
-            (sum,id)=>sum+trucks[id].maxLead,
-            0
-        ) / truckIds.length;
-
-    const completion =
-        totalASN
-        ? (totalReceived/totalASN)*100
-        : 0;
-
-    document.getElementById("totalTrucks").textContent =
-        truckIds.length;
-
-    document.getElementById("avgLeadTime").textContent =
-        avgLead.toFixed(1);
-
-    document.getElementById("completionRate").textContent =
-        completion.toFixed(1) + "%";
-
-    document.getElementById("openSku").textContent =
-        data.filter(r=>
-            Number(
-                r["Количество осталось принять"]
-            ) > 0
-        ).length;
-
-    /*
-     График времени приемки машин
-     */
-
-    new Chart(
-        document.getElementById("truckLeadChart"),
-        {
-            type:"bar",
-            data:{
-                labels:truckIds,
-                datasets:[{
-                    label:"Дней до завершения приемки",
-                    data:truckIds.map(
-                        id => trucks[id].maxLead
-                    ),
-                    backgroundColor:"#2563eb"
-                }]
-            },
-            options:{
-                responsive:true
-            }
-        }
-    );
-
-    /**
-     * Прогресс приемки машины
-     */
-    new Chart(
-        document.getElementById("truckCompletionChart"),
-        {
-            type:"bar",
-            data:{
-                labels:truckIds,
-                datasets:[{
-                    label:"% приемки",
-                    data:truckIds.map(id=>
-                        (
-                            trucks[id].accepted
-                            /
-                            trucks[id].asn
-                        )*100
-                    ),
-                    backgroundColor:"#16a34a"
-                }]
-            }
-        }
-    );
-
-    /**
-     * Приоритеты
-     */
-    const priorityMap = {};
-
-    data.forEach(row=>{
-
-        const priority =
-            row["Приоритет"];
-
-        const qty =
-            Number(row["Количество в ASN "]) || 0;
-
-        priorityMap[priority] =
-            (priorityMap[priority] || 0)
-            + qty;
-    });
-
-    new Chart(
-        document.getElementById("priorityChart"),
-        {
-            type:"pie",
-            data:{
-                labels:Object.keys(priorityMap),
-                datasets:[{
-                    data:Object.values(priorityMap)
-                }]
-            }
-        }
-    );
-
-    /**
-     * Принято / осталось
-     */
-    new Chart(
-        document.getElementById("volumeChart"),
-        {
-            type:"doughnut",
-            data:{
-                labels:[
-                    "Принято",
-                    "Осталось"
-                ],
-                datasets:[{
-                    data:[
-                        totalReceived,
-                        totalRemaining
-                    ],
-                    backgroundColor:[
-                        "#16a34a",
-                        "#dc2626"
-                    ]
-                }]
-            }
-        }
-    );
-
-    /**
-     * Активность приемки по времени
-     */
-    new Chart(
-        document.getElementById("timelineChart"),
-        {
-            type:"line",
-            data:{
-                labels:Object.keys(timelineMap),
-                datasets:[{
-                    label:"Количество SKU в приемке",
-                    data:Object.values(timelineMap),
-                    borderColor:"#2563eb",
-                    fill:false,
-                    tension:0.3
-                }]
-            }
-        }
-    );
-
-    /**
-     * Таблица машин
-     */
-    const tbody =
-        document.querySelector("#truckTable tbody");
-
-    truckIds
-        .sort(
-            (a,b)=>
-                trucks[b].maxLead -
-                trucks[a].maxLead
-        )
-        .forEach(id=>{
-
-        const truck = trucks[id];
-
-        const progress =
-            ((truck.accepted/truck.asn)*100)
-            .toFixed(1);
-
-        const status =
-            truck.remaining === 0
-            ? "Завершено"
-            : "Есть остаток";
-
-        const className =
-            truck.remaining === 0
-            ? "status-good"
-            : "status-bad";
-
-        const tr =
-            document.createElement("tr");
-
-        tr.innerHTML = `
-            <td>${id}</td>
-            <td>${truck.sku}</td>
-            <td>${truck.asn}</td>
-            <td>${truck.accepted}</td>
-            <td>${progress}%</td>
-            <td>${truck.maxLead} дн.</td>
-            <td class="${className}">
-                ${status}
-            </td>
-        `;
-
-        tbody.appendChild(tr);
-    });
+function baseGridOptions() {
+  return {
+    grid: { color: PALETTE.grid, drawTicks: false },
+    ticks: { color: PALETTE.textDim },
+    border: { color: PALETTE.grid }
+  };
 }
 
+// -------------------- 5. Отрисовка KPI-плашек --------------------
+
+function renderKpis(rows, trucks) {
+  const totalAsn = rows.reduce((s, r) => s + r.qtyAsn, 0);
+  const totalDone = rows.reduce((s, r) => s + r.qtyDone, 0);
+  const totalLeft = rows.reduce((s, r) => s + r.qtyLeft, 0);
+  const completedTrucks = trucks.filter(t => t.allComplete);
+  const leadtimes = completedTrucks.map(t => t.leadtimeHours).filter(v => v !== null);
+  const avgLeadtime = leadtimes.length ? Math.round(leadtimes.reduce((a, b) => a + b, 0) / leadtimes.length) : null;
+  const maxLeadtime = leadtimes.length ? Math.max(...leadtimes) : null;
+  const overallProgress = totalAsn > 0 ? Math.round((totalDone / totalAsn) * 100) : 0;
+
+  const kpis = [
+    {
+      label: 'Машин в файле', value: trucks.length,
+      sub: `${completedTrucks.length} завершено полностью`,
+      cls: ''
+    },
+    {
+      label: 'Ср. время приёмки', value: avgLeadtime !== null ? `${avgLeadtime} ч` : '—',
+      sub: 'по завершённым машинам',
+      cls: avgLeadtime !== null && avgLeadtime > 100 ? 'warn' : ''
+    },
+    {
+      label: 'Макс. время приёмки', value: maxLeadtime !== null ? `${maxLeadtime} ч` : '—',
+      sub: 'самая долгая машина',
+      cls: maxLeadtime !== null && maxLeadtime > 150 ? 'crit' : 'warn'
+    },
+    {
+      label: 'Общий прогресс приёмки', value: `${overallProgress}%`,
+      sub: `${totalDone.toLocaleString('ru-RU')} из ${totalAsn.toLocaleString('ru-RU')} шт.`,
+      cls: overallProgress < 70 ? 'warn' : ''
+    },
+    {
+      label: 'Осталось принять', value: totalLeft.toLocaleString('ru-RU'),
+      sub: 'единиц товара по всем ASN',
+      cls: totalLeft > 0 ? 'warn' : ''
+    }
+  ];
+
+  const el = document.getElementById('kpi-row');
+  el.innerHTML = kpis.map(k => `
+    <div class="kpi ${k.cls}">
+      <p class="kpi-label">${k.label}</p>
+      <div class="kpi-value">${k.value}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>
+  `).join('');
+}
+
+// -------------------- 6. График 1: время приёмки по машине (горизонтальные бары) --------------------
+
+function renderTruckLeadtimeChart(trucks) {
+  const known = trucks.filter(t => t.leadtimeHours !== null);
+  const ctx = document.getElementById('chart-truck-leadtime');
+
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: known.map(t => `Машина ${t.truck}`),
+      datasets: [{
+        label: 'Время приёмки, ч',
+        data: known.map(t => t.leadtimeHours),
+        backgroundColor: known.map(t =>
+          t.leadtimeHours > 150 ? PALETTE.red :
+          t.leadtimeHours > 80 ? PALETTE.amber : PALETTE.cyan
+        ),
+        borderRadius: 3,
+        barThickness: 22
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `  ${ctx.parsed.x} часов на приёмку`
+          }
+        }
+      },
+      scales: {
+        x: { ...baseGridOptions(), title: { display: true, text: 'часы', color: PALETTE.textDim } },
+        y: { grid: { display: false }, ticks: { color: PALETTE.text } }
+      }
+    }
+  });
+}
+
+// -------------------- 7. График 2: статус SKU-строк (donut) --------------------
+
+function renderStatusDonut(rows) {
+  const complete = rows.filter(r => r.isComplete).length;
+  const partial = rows.filter(r => !r.isComplete && r.qtyDone > 0).length;
+  const notStarted = rows.filter(r => r.qtyDone === 0).length;
+
+  const ctx = document.getElementById('chart-status-donut');
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['Завершено', 'В процессе', 'Не начато'],
+      datasets: [{
+        data: [complete, partial, notStarted],
+        backgroundColor: [PALETTE.cyan, PALETTE.amber, PALETTE.red],
+        borderColor: '#181d25',
+        borderWidth: 3
+      }]
+    },
+    options: {
+      responsive: true,
+      cutout: '68%',
+      plugins: {
+        legend: { position: 'bottom', labels: { color: PALETTE.text, boxWidth: 10, padding: 14 } }
+      }
+    }
+  });
+}
+
+// -------------------- 8. График 3: план vs факт по машинам --------------------
+
+function renderPlanFactChart(trucks) {
+  const ctx = document.getElementById('chart-plan-fact');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: trucks.map(t => `М.${t.truck}`),
+      datasets: [
+        {
+          label: 'Заявлено (ASN)',
+          data: trucks.map(t => t.qtyAsn),
+          backgroundColor: PALETTE.violet + '55',
+          borderColor: PALETTE.violet,
+          borderWidth: 1.5,
+          borderRadius: 3
+        },
+        {
+          label: 'Принято факт',
+          data: trucks.map(t => t.qtyDone),
+          backgroundColor: PALETTE.cyan,
+          borderRadius: 3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: PALETTE.text, boxWidth: 10, padding: 14 } }
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: PALETTE.text } },
+        y: { ...baseGridOptions(), title: { display: true, text: 'штук', color: PALETTE.textDim } }
+      }
+    }
+  });
+}
+
+// -------------------- 9. График 4: остатки по SKU (топ проблемных позиций) --------------------
+
+function renderRemainingChart(rows) {
+  // Берём только строки с ненулевым остатком, сортируем по убыванию, топ-8
+  const top = rows
+    .filter(r => r.qtyLeft > 0)
+    .sort((a, b) => b.qtyLeft - a.qtyLeft)
+    .slice(0, 8);
+
+  const ctx = document.getElementById('chart-remaining');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: top.map(r => r.sku.length > 18 ? r.sku.slice(0, 18) + '…' : r.sku),
+      datasets: [{
+        label: 'Осталось принять, шт',
+        data: top.map(r => r.qtyLeft),
+        backgroundColor: PALETTE.amber,
+        borderRadius: 3
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (items) => top[items[0].dataIndex].sku,
+            label: (ctx) => `  Осталось: ${ctx.parsed.x} шт · Машина ${top[ctx.dataIndex].truck}`
+          }
+        }
+      },
+      scales: {
+        x: { ...baseGridOptions(), title: { display: true, text: 'штук', color: PALETTE.textDim } },
+        y: { grid: { display: false }, ticks: { color: PALETTE.text, font: { family: "'Cascadia Mono', monospace", size: 10.5 } } }
+      }
+    }
+  });
+}
+
+// -------------------- 10. График 5: хронология старта приёмки по дням --------------------
+
+function renderTimelineChart(rows) {
+  // Считаем, сколько строк SKU стартовало (Начало приемки SKU) в каждый день
+  const counts = new Map();
+  for (const r of rows) {
+    if (!r.startDate) continue;
+    const key = fmtDate(r.startDate);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  // Сортируем ключи по фактической дате
+  const sortedKeys = [...counts.keys()].sort((a, b) => {
+    const da = parseRuDate(a), db = parseRuDate(b);
+    return da - db;
+  });
+
+  const ctx = document.getElementById('chart-timeline');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: sortedKeys,
+      datasets: [{
+        label: 'Начато SKU-строк',
+        data: sortedKeys.map(k => counts.get(k)),
+        borderColor: PALETTE.cyan,
+        backgroundColor: PALETTE.cyanDim,
+        fill: true,
+        tension: 0.35,
+        pointRadius: 4,
+        pointBackgroundColor: PALETTE.cyan,
+        pointBorderColor: '#181d25',
+        pointBorderWidth: 2
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { display: false }, ticks: { color: PALETTE.textDim } },
+        y: { ...baseGridOptions(), beginAtZero: true, ticks: { ...baseGridOptions().ticks, stepSize: 1 } }
+      }
+    }
+  });
+}
+
+// -------------------- 11. График 6: приоритет vs скорость приёмки (scatter) --------------------
+
+function renderPriorityScatter(rows) {
+  // Берём только строки с известным leadtime (завершённые SKU)
+  const points = rows
+    .filter(r => r.leadtimeHours !== null)
+    .map(r => ({ x: r.priority, y: r.leadtimeHours, sku: r.sku, truck: r.truck }));
+
+  const ctx = document.getElementById('chart-priority-scatter');
+  new Chart(ctx, {
+    type: 'scatter',
+    data: {
+      datasets: [{
+        label: 'SKU',
+        data: points,
+        backgroundColor: PALETTE.amber,
+        pointRadius: 6,
+        pointHoverRadius: 8
+      }]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const p = ctx.raw;
+              return [`Машина ${p.truck} · ${p.sku}`, `Приоритет: ${p.x} · Leadtime: ${p.y} ч`];
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ...baseGridOptions(), title: { display: true, text: 'приоритет партии', color: PALETTE.textDim } },
+        y: { ...baseGridOptions(), title: { display: true, text: 'время приёмки, ч', color: PALETTE.textDim } }
+      }
+    }
+  });
+}
+
+// -------------------- 12. Таблица по машинам --------------------
+
+function renderTruckTable(trucks) {
+  const tbody = document.querySelector('#truck-table tbody');
+
+  const statusLabel = { ok: 'Готово', warn: 'В работе', crit: 'Критично' };
+
+  tbody.innerHTML = trucks.map(t => {
+    const barColor = t.status === 'crit' ? PALETTE.red : t.status === 'warn' ? PALETTE.amber : PALETTE.cyan;
+    return `
+      <tr>
+        <td class="truck-id">${t.truck}</td>
+        <td>${fmtDate(t.arrivalDate)}</td>
+        <td>${t.palletCount}</td>
+        <td>${t.asnCount}</td>
+        <td>${t.skuRows}</td>
+        <td>${t.qtyAsn.toLocaleString('ru-RU')}</td>
+        <td>${t.qtyDone.toLocaleString('ru-RU')}</td>
+        <td>${t.qtyLeft.toLocaleString('ru-RU')}</td>
+        <td class="bar-cell">
+          <div class="bar-track">
+            <div class="bar-fill" style="width:${t.progressPct}%; background:${barColor};"></div>
+          </div>
+        </td>
+        <td>${t.leadtimeHours !== null ? t.leadtimeHours : '—'}</td>
+        <td><span class="pill ${t.status}">${statusLabel[t.status]}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+// -------------------- 13. Точка входа: загрузка и запуск всей отрисовки --------------------
+
+async function initDashboard() {
+  const banner = document.getElementById('status-banner');
+  try {
+    // time.csv лежит рядом с index.html
+    const response = await fetch('time.csv');
+    if (!response.ok) {
+      throw new Error(`Не удалось загрузить time.csv (HTTP ${response.status})`);
+    }
+    // Файл в кириллице — читаем как UTF-8 текст
+    const text = await response.text();
+
+    const rawRows = parseCsv(text);
+    const rows = rawRows.map(buildRow).filter(r => r.truck !== '—');
+    const trucks = aggregateByTruck(rows);
+
+    // Скрываем баннер загрузки, показываем дэшборд
+    banner.classList.remove('show');
+    document.getElementById('main').style.display = 'block';
+    document.getElementById('meta-updated').textContent = new Date().toLocaleString('ru-RU');
+
+    renderKpis(rows, trucks);
+    renderTruckLeadtimeChart(trucks);
+    renderStatusDonut(rows);
+    renderPlanFactChart(trucks);
+    renderRemainingChart(rows);
+    renderTimelineChart(rows);
+    renderPriorityScatter(rows);
+    renderTruckTable(trucks);
+
+  } catch (err) {
+    // Показываем понятную ошибку прямо на странице —
+    // самая частая причина: index.html открыт напрямую как file://,
+    // а не через локальный веб-сервер (fetch к CSV блокируется браузером).
+    banner.className = 'error show';
+    banner.innerHTML = `
+      Ошибка загрузки данных: ${err.message}.<br>
+      Убедитесь, что time.csv лежит в той же папке, что и index.html,
+      и что страница открыта через локальный сервер (например: <code>python -m http.server</code>),
+      а не напрямую двойным кликом по файлу.
+    `;
+    console.error(err);
+  }
+}
+
+// Запускаем дэшборд после полной загрузки DOM
+document.addEventListener('DOMContentLoaded', initDashboard);
 </script>
 
 </body>
