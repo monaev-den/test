@@ -3,18 +3,18 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Тепловая карта 08-07 22-13 </title>
+    <title>Тепловая карта  —  08-07 22-34</title>
 
-    <!-- Подключаем D3 для карты и визуализаций -->
+    <!-- D3.js и топоданные -->
     <script src="https://d3js.org/d3.v7.min.js">
     </script>
-    <!-- topojson-client для работы с GeoJSON -->
-    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
-    <!-- Шрифт и иконки для красоты -->
+    <script src="https://cdn.jsdelivr.net/npm/topojson-client@3">
+    </script>
+    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" />
 
     <style>
-        /* ===== Глобальные стили ===== */
+        /* ===== Общие стили (аналогичны предыдущим) ===== */
         * {
             margin: 0;
             padding: 0;
@@ -33,7 +33,6 @@
             margin: 0 auto;
         }
 
-        /* ===== Хедер ===== */
         .header {
             background: linear-gradient(135deg, #0b2b4f, #1a4b7a);
             color: white;
@@ -49,7 +48,6 @@
         .header h1 {
             font-weight: 600;
             font-size: 26px;
-            letter-spacing: 0.5px;
             display: flex;
             align-items: center;
             gap: 12px;
@@ -74,7 +72,6 @@
             backdrop-filter: blur(4px);
         }
 
-        /* ===== KPI-карточки ===== */
         .kpi-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -87,11 +84,6 @@
             padding: 18px 20px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
             border-left: 5px solid #1a4b7a;
-            transition: 0.2s;
-        }
-        .kpi-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.07);
         }
         .kpi-card .label {
             font-size: 13px;
@@ -106,17 +98,6 @@
             color: #0b2b4f;
             margin-top: 4px;
         }
-        .kpi-card .value small {
-            font-size: 16px;
-            font-weight: 400;
-            color: #6b7a8a;
-            margin-left: 6px;
-        }
-        .kpi-card .trend {
-            font-size: 13px;
-            color: #2a7a4a;
-            margin-top: 2px;
-        }
         .kpi-card:nth-child(2) {
             border-left-color: #e67e22;
         }
@@ -130,7 +111,6 @@
             border-left-color: #e74c3c;
         }
 
-        /* ===== Фильтры ===== */
         .filters {
             background: white;
             border-radius: 14px;
@@ -183,7 +163,6 @@
             background: #d5dde8;
         }
 
-        /* ===== Основная сетка: карта + графики ===== */
         .main-grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -215,14 +194,38 @@
             color: #1a4b7a;
             font-size: 18px;
         }
-        .card .note {
-            font-size: 12px;
-            color: #8a9aa8;
-            margin-top: 6px;
-            font-style: italic;
+
+        /* Переключатель типов карты */
+        .map-type-selector {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .map-type-selector button {
+            background: #eef2f7;
+            border: none;
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: 0.15s;
+            color: #2c3e50;
+            font-weight: 500;
+            border: 1px solid transparent;
+        }
+        .map-type-selector button.active {
+            background: #1a4b7a;
+            color: white;
+            border-color: #1a4b7a;
+        }
+        .map-type-selector button:hover {
+            background: #d5dde8;
+        }
+        .map-type-selector button.active:hover {
+            background: #0b2b4f;
         }
 
-        /* ===== Контейнер для карты ===== */
         #map-container {
             width: 100%;
             height: 480px;
@@ -236,7 +239,7 @@
             height: 100%;
             display: block;
         }
-        #map-container .map-tooltip {
+        .map-tooltip {
             position: absolute;
             background: rgba(0, 0, 0, 0.8);
             color: #fff;
@@ -248,11 +251,10 @@
             transition: opacity 0.15s;
             z-index: 20;
         }
-        #map-container .map-tooltip.show {
+        .map-tooltip.show {
             opacity: 1;
         }
 
-        /* Легенда карты */
         .map-legend {
             display: flex;
             align-items: center;
@@ -269,7 +271,6 @@
             background: linear-gradient(to right, #fee8c8, #fdbb84, #e34a33);
         }
 
-        /* ===== Графики ===== */
         .chart-container {
             width: 100%;
             height: 210px;
@@ -294,7 +295,6 @@
             }
         }
 
-        /* ===== Таблица ===== */
         .table-wrap {
             overflow-x: auto;
             margin-top: 8px;
@@ -346,11 +346,7 @@
             background: #1a4b7a;
             transition: width 0.3s;
         }
-        .table-wrap .highlight-row td {
-            background: #fcf8e8;
-        }
 
-        /* ===== Инсайты ===== */
         .insights {
             background: white;
             border-radius: 14px;
@@ -387,39 +383,7 @@
             color: #27ae60;
             font-size: 14px;
         }
-        .insights .warn i {
-            color: #e67e22;
-        }
 
-        /* ===== Адаптив ===== */
-        @media (max-width: 700px) {
-            .header {
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 10px;
-            }
-            .header h1 {
-                font-size: 20px;
-            }
-            .kpi-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            .filters {
-                flex-direction: column;
-                align-items: stretch;
-            }
-            .filters .group {
-                flex-wrap: wrap;
-            }
-            .card {
-                padding: 14px;
-            }
-            #map-container {
-                height: 320px;
-            }
-        }
-
-        /* ===== Анимация загрузки ===== */
         .loading {
             text-align: center;
             padding: 40px 20px;
@@ -442,21 +406,6 @@
             }
         }
 
-        /* Дополнительные штрихи */
-        .text-muted {
-            color: #8a9aa8;
-        }
-        .mt-8 {
-            margin-top: 8px;
-        }
-        .flex-between {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .gap-4 {
-            gap: 4px;
-        }
         .badge-city {
             background: #eef2f7;
             padding: 2px 10px;
@@ -464,25 +413,53 @@
             font-size: 11px;
             font-weight: 500;
         }
+        .flex-between {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .text-muted {
+            color: #8a9aa8;
+        }
+        .mt-8 {
+            margin-top: 8px;
+        }
+        .note {
+            font-size: 12px;
+            color: #8a9aa8;
+            margin-top: 6px;
+            font-style: italic;
+        }
+
+        @media (max-width: 700px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            .header h1 {
+                font-size: 20px;
+            }
+            .kpi-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            .filters {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            #map-container {
+                height: 320px;
+            }
+        }
     </style>
 </head>
 <body>
 
     <div class="dashboard" id="app">
-        <!-- ===== ХЕДЕР ===== -->
         <header class="header">
             <div>
-                <h1>
-                    <i class="fas fa-truck"></i>
-                    Тепловая карта отгрузок
-                    <span style="font-size:14px;font-weight:300;margin-left:12px;opacity:0.8;">
-                        Июль 2026
-                    </span>
-                </h1>
-                <div class="sub">
-                    <i class="fas fa-map-marked-alt"></i>
-                    Анализ дистрибуции по складам и городам
-                </div>
+                <h1><i class="fas fa-truck"></i> Тепловая карта отгрузок</h1>
+                <div class="sub"><i class="fas fa-map-marked-alt"></i> Несколько вариантов визуализации</div>
             </div>
             <div class="badge">
                 <i class="fas fa-database"></i>
@@ -493,7 +470,6 @@
             </div>
         </header>
 
-        <!-- ===== KPI ===== -->
         <section class="kpi-grid" id="kpiGrid">
             <div class="kpi-card"><div class="label"><i class="fas fa-ruble-sign"></i> Выручка</div><div class="value" id="kpiRevenue">—</div></div>
             <div class="kpi-card"><div class="label"><i class="fas fa-boxes"></i> Отгрузок (ед.)</div><div class="value" id="kpiShipments">—</div></div>
@@ -502,7 +478,6 @@
             <div class="kpi-card"><div class="label"><i class="fas fa-users"></i> Клиентов</div><div class="value" id="kpiClients">—</div></div>
         </section>
 
-        <!-- ===== ФИЛЬТРЫ ===== -->
         <section class="filters" id="filterSection">
             <div class="group">
                 <label><i class="fas fa-warehouse"></i> Склад</label>
@@ -527,11 +502,16 @@
             </div>
         </section>
 
-        <!-- ===== ОСНОВНАЯ СЕТКА ===== -->
         <div class="main-grid">
             <!-- Карта -->
             <div class="card">
-                <h3><i class="fas fa-map"></i> Тепловая карта отгрузок по городам</h3>
+                <h3><i class="fas fa-map"></i> Тепловая карта</h3>
+                <!-- Переключатель типов -->
+                <div class="map-type-selector" id="mapTypeSelector">
+                    <button class="active" data-type="bubbles">Круги</button>
+                    <button data-type="voronoi">Вороной</button>
+                    <button data-type="delaunay">Интерполяция</button>
+                </div>
                 <div id="map-container">
                     <div class="loading" id="mapLoading">
                         <i class="fas fa-spinner"></i>
@@ -549,14 +529,13 @@
                         <i class="fas fa-circle" style="color:#1a4b7a;font-size:10px;"></i> размер = объём
                     </span>
                 </div>
-                <div class="note" id="mapNote">Наведите на город для деталей</div>
+                <div class="note" id="mapNote">Наведите на объект для деталей</div>
             </div>
 
             <!-- Правый блок: графики -->
             <div class="card">
                 <h3><i class="fas fa-chart-bar"></i> Топ-10 городов по выручке</h3>
                 <div class="chart-container bar-chart" id="topCitiesChart"></div>
-
                 <div class="mini-chart-grid">
                     <div>
                         <h4 style="font-size:13px;font-weight:500;margin-bottom:4px;">
@@ -574,7 +553,7 @@
             </div>
         </div>
 
-        <!-- ===== ТАБЛИЦА ===== -->
+        <!-- Таблица -->
         <div class="card" style="margin-bottom:20px;">
             <div class="flex-between">
                 <h3><i class="fas fa-table"></i> Детальная таблица отгрузок</h3>
@@ -592,18 +571,16 @@
                             <th data-sort="revenue">Выручка (RUR) <i class="fas fa-sort"></i></th>
                             <th data-sort="qty">Кол-во (баз.) <i class="fas fa-sort"></i></th>
                             <th data-sort="orders">Заказов <i class="fas fa-sort"></i></th>
-                            <th data-sort="clients">Клиентов <i class="fas fa-sort"></i></th>
                             <th>Доля</th>
                         </tr>
                     </thead>
                     <tbody id="tableBody">
-                        <tr><td colspan="8" style="text-align:center;padding:30px;color:#8a9aa8;">Загрузка данных...</td></tr>
+                        <tr><td colspan="7" style="text-align:center;padding:30px;color:#8a9aa8;">Загрузка данных...</td></tr>
                     </tbody>
                 </table>
             </div>
         </div>
 
-        <!-- ===== ИНСАЙТЫ ===== -->
         <div class="insights" id="insightsBlock">
             <h3><i class="fas fa-lightbulb"></i> Советы и инсайты</h3>
             <ul id="insightsList">
@@ -616,15 +593,13 @@
         // ================================================================
         //  1.  ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ
         // ================================================================
-        let allData = []; // все записи из CSV (после парсинга)
-        let filteredData = []; // текущий отфильтрованный набор
-        let cityCoord = {}; // словарь: город -> { lat, lon }
+        let allData = [];
+        let filteredData = [];
+        let currentMapType = 'bubbles'; // bubbles, voronoi, delaunay
         let sortKey = 'revenue';
         let sortAsc = false;
 
-        // ================================================================
-        //  2.  КООРДИНАТЫ ГОРОДОВ РОССИИ (приблизительные)
-        // ================================================================
+        // Координаты городов (частичные, из предыдущего варианта)
         const cityCoords = {
             'Москва': { lat: 55.7558, lon: 37.6173 },
             'Санкт-Петербург': { lat: 59.9343, lon: 30.3351 },
@@ -702,83 +677,51 @@
             'Йошкар-Ола': { lat: 56.6357, lon: 47.8746 },
             'Чебоксары': { lat: 56.1431, lon: 47.2489 },
             'Саранск': { lat: 54.1873, lon: 45.1749 },
-            'Ульяновск': { lat: 54.3180, lon: 48.3944 },
             'Тольятти': { lat: 53.5078, lon: 49.4204 },
             'Сызрань': { lat: 53.1552, lon: 48.4746 },
             'Набережные Челны': { lat: 55.7436, lon: 52.3956 },
             'Нижнекамск': { lat: 55.6316, lon: 51.8145 },
-            'Альметьевск': { lat: 54.8980, lon: 52.3158 },
             'Стерлитамак': { lat: 53.6301, lon: 55.9316 },
-            'Октябрьский': { lat: 54.4815, lon: 53.4659 },
-            'Туймазы': { lat: 54.5984, lon: 53.7087 },
             'Магнитогорск': { lat: 53.4071, lon: 58.9902 },
-            'Златоуст': { lat: 55.1715, lon: 59.6721 },
-            'Миасс': { lat: 55.0528, lon: 60.1179 },
             'Каменск-Уральский': { lat: 56.4142, lon: 61.9323 },
             'Нижний Тагил': { lat: 57.9100, lon: 59.9810 },
             'Первоуральск': { lat: 56.9051, lon: 59.9482 },
-            'Новоуральск': { lat: 57.2433, lon: 60.0833 },
-            'Серов': { lat: 59.6047, lon: 60.5755 },
-            'Краснотурьинск': { lat: 59.7667, lon: 60.2167 },
-            'Ирбит': { lat: 57.6700, lon: 63.0700 },
             'Ханты-Мансийск': { lat: 61.0084, lon: 69.0065 },
             'Югорск': { lat: 61.3124, lon: 63.3367 },
             'Нягань': { lat: 62.1455, lon: 65.3941 },
             'Когалым': { lat: 62.2647, lon: 74.4831 },
             'Ноябрьск': { lat: 63.2017, lon: 75.4507 },
-            'Новый Уренгой': { lat: 66.0841, lon: 76.6810 },
-            'Салехард': { lat: 66.5300, lon: 66.6010 },
             'Тобольск': { lat: 58.2013, lon: 68.2532 },
             'Ишим': { lat: 56.1129, lon: 69.4869 },
-            'Омск': { lat: 54.9893, lon: 73.3682 },
-            'Томск': { lat: 56.4951, lon: 84.9726 },
             'Северск': { lat: 56.6031, lon: 84.8808 },
-            'Кемерово': { lat: 55.3549, lon: 86.0877 },
             'Новокузнецк': { lat: 53.7945, lon: 87.2143 },
             'Прокопьевск': { lat: 53.8884, lon: 86.7447 },
-            'Ленинск-Кузнецкий': { lat: 54.6572, lon: 86.1769 },
-            'Киселевск': { lat: 53.9791, lon: 86.6651 },
-            'Междуреченск': { lat: 53.6865, lon: 88.0703 },
             'Бийск': { lat: 52.5360, lon: 85.2075 },
-            'Рубцовск': { lat: 51.5149, lon: 81.2025 },
             'Горно-Алтайск': { lat: 51.9583, lon: 85.9612 },
-            'Красноярск': { lat: 56.0106, lon: 92.8526 },
             'Ачинск': { lat: 56.2690, lon: 90.4990 },
             'Норильск': { lat: 69.3490, lon: 88.2000 },
-            'Иркутск': { lat: 52.2864, lon: 104.2807 },
             'Ангарск': { lat: 52.5374, lon: 103.8861 },
             'Братск': { lat: 56.1514, lon: 101.6332 },
-            'Усть-Илимск': { lat: 57.9694, lon: 102.7333 },
             'Чита': { lat: 52.0333, lon: 113.5000 },
             'Улан-Удэ': { lat: 51.8333, lon: 107.6000 },
             'Якутск': { lat: 62.0333, lon: 129.7333 },
-            'Хабаровск': { lat: 48.4802, lon: 135.0719 },
             'Комсомольск-на-Амуре': { lat: 50.5500, lon: 137.0000 },
-            'Владивосток': { lat: 43.1152, lon: 131.8855 },
             'Уссурийск': { lat: 43.8028, lon: 131.9453 },
             'Находка': { lat: 42.8167, lon: 132.8667 },
             'Артем': { lat: 43.3595, lon: 132.1888 },
             'Партизанск': { lat: 43.1299, lon: 133.1276 },
             'Спасск-Дальний': { lat: 44.6059, lon: 132.8090 },
             'Благовещенск': { lat: 50.2731, lon: 127.5322 },
-            'Белогорск': { lat: 50.9167, lon: 128.4667 },
-            'Свободный': { lat: 51.3833, lon: 128.1333 },
-            'Тында': { lat: 55.1667, lon: 124.7167 },
             'Петропавловск-Камчатский': { lat: 53.0167, lon: 158.6500 },
             'Южно-Сахалинск': { lat: 46.9667, lon: 142.7333 },
-            'Магадан': { lat: 59.5667, lon: 150.8000 },
-            'Анадырь': { lat: 64.7333, lon: 177.5167 }
+            'Магадан': { lat: 59.5667, lon: 150.8000 }
         };
 
-        // Дополним координаты для городов, которых нет в списке (из данных)
-        // будем добавлять автоматически при парсинге
-
         // ================================================================
-        //  3.  ПАРСИНГ CSV
+        //  2.  ПАРСИНГ CSV
         // ================================================================
         function parseCSV(text) {
             const lines = text.split('\n');
-            // Ищем строку с заголовками (она начинается со "Склад;Контрагент;...")
             let headerIdx = -1;
             for (let i = 0; i < lines.length; i++) {
                 if (lines[i].includes('Склад;Контрагент;Brand type;Документ продажи;Способ получения заказа;Ответственный;По дням;По неделям;Сумма продажи в RUR;Количество (в ед. отчетов);Количество (в базовых единицах)')) {
@@ -787,7 +730,6 @@
                 }
             }
             if (headerIdx === -1) {
-                // Попробуем найти по фрагменту
                 for (let i = 0; i < lines.length; i++) {
                     if (lines[i].includes('Склад;Контрагент;Brand type')) {
                         headerIdx = i;
@@ -795,48 +737,32 @@
                     }
                 }
             }
-            if (headerIdx === -1) {
-                console.warn('Не найден заголовок CSV');
-                return [];
-            }
+            if (headerIdx === -1) return [];
 
             const headers = lines[headerIdx].split(';').map(h => h.trim());
             const data = [];
             for (let i = headerIdx + 1; i < lines.length; i++) {
                 const row = lines[i].trim();
                 if (!row) continue;
-                // Простой парсинг: разбиваем по ; но учитываем что внутри могут быть ; в кавычках
-                // Для простоты используем стандартный split, но экранируем кавычки
                 let cols = row.split(';');
                 if (cols.length < headers.length) continue;
                 const obj = {};
                 for (let j = 0; j < headers.length; j++) {
                     let val = cols[j] || '';
-                    // Убираем лишние кавычки
-                    if (val.startsWith('"') && val.endsWith('"')) {
-                        val = val.slice(1, -1);
-                    }
-                    // Заменяем запятую на точку для чисел
+                    if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
                     if (headers[j] === 'Сумма продажи в RUR' || headers[j] === 'Количество (в ед. отчетов)' ||
                         headers[j] === 'Количество (в базовых единицах)') {
                         val = val.replace(',', '.').replace(/\s/g, '');
                     }
                     obj[headers[j]] = val;
                 }
-                // Извлекаем город из Контрагент: "... (Город г.)"
                 const counterparty = obj['Контрагент'] || '';
                 let city = '';
                 const match = counterparty.match(/\(([^)]+)\)/);
                 if (match) {
-                    let raw = match[1].trim();
-                    // Убираем "г." в конце
-                    raw = raw.replace(/г\.$/, '').trim();
-                    // Убираем "г" в конце
-                    raw = raw.replace(/г$/, '').trim();
-                    // Если осталось что-то типа "Москва" — оставляем
+                    let raw = match[1].trim().replace(/г\.$/, '').replace(/г$/, '').trim();
                     if (raw) city = raw;
                 }
-                // Если город не найден, пробуем по названию контрагента
                 if (!city) {
                     const parts = counterparty.split('(');
                     if (parts.length > 1) {
@@ -845,67 +771,44 @@
                     }
                 }
                 obj['city'] = city || 'Неизвестно';
-
-                // Склад
                 obj['warehouse'] = obj['Склад'] || 'Основной склад Частная Марка';
-
-                // Brand type
                 obj['brand'] = obj['Brand type'] || '';
-
-                // Сумма
                 let revenue = parseFloat(obj['Сумма продажи в RUR']) || 0;
                 obj['revenue'] = revenue;
-
-                // Количество в базовых единицах
                 let qty = parseFloat(obj['Количество (в базовых единицах)']) || 0;
                 obj['qty'] = qty;
-
-                // Документ продажи — для подсчёта заказов
                 obj['doc'] = obj['Документ продажи'] || '';
-
-                // Ответственный — для клиентов (уникальные)
                 obj['manager'] = obj['Ответственный'] || '';
-
-                // Дата (По дням)
-                const dateStr = obj['По дням'] || '';
-                obj['date'] = dateStr;
-
+                obj['date'] = obj['По дням'] || '';
                 data.push(obj);
             }
             return data;
         }
 
         // ================================================================
-        //  4.  ЗАГРУЗКА ДАННЫХ И ИНИЦИАЛИЗАЦИЯ
+        //  3.  ЗАГРУЗКА ДАННЫХ
         // ================================================================
         async function loadData() {
             try {
                 const response = await fetch('1сsales.csv');
                 if (!response.ok) throw new Error('Не удалось загрузить 1сsales.csv');
                 const text = await response.text();
-                const raw = parseCSV(text);
+                let raw = parseCSV(text);
                 if (raw.length === 0) {
-                    // Если не удалось распарсить, пробуем альтернативный метод
-                    // Возможно файл в другой кодировке — пробуем через Blob
+                    // пробуем Windows-1251
                     const blob = await response.blob();
                     const decoder = new TextDecoder('windows-1251');
                     const decoded = decoder.decode(await blob.arrayBuffer());
-                    const raw2 = parseCSV(decoded);
-                    if (raw2.length > 0) {
-                        allData = raw2;
-                    } else {
-                        throw new Error('Не удалось распарсить CSV');
-                    }
-                } else {
-                    allData = raw;
+                    raw = parseCSV(decoded);
                 }
+                if (raw.length === 0) throw new Error('Не удалось распарсить CSV');
+                allData = raw;
                 // Обогащаем координатами
                 allData.forEach(d => {
                     if (d.city && cityCoords[d.city]) {
                         d.lat = cityCoords[d.city].lat;
                         d.lon = cityCoords[d.city].lon;
                     } else if (d.city) {
-                        // Пытаемся найти частичное совпадение
                         for (const key of Object.keys(cityCoords)) {
                             if (d.city.includes(key) || key.includes(d.city)) {
                                 d.lat = cityCoords[key].lat;
@@ -913,20 +816,15 @@
                                 break;
                             }
                         }
-                        // Если не нашли, ставим приблизительно центр России
-                        if (!d.lat) {
-                            d.lat = 55.7558;
-                            d.lon = 37.6173;
-                        }
+                        if (!d.lat) { d.lat = 55.7558;
+                            d.lon = 37.6173; }
                     } else {
                         d.lat = 55.7558;
                         d.lon = 37.6173;
                     }
                 });
-                // Заполняем фильтры и рендерим
                 populateFilters();
                 applyFilters();
-                renderDashboard();
                 document.getElementById('recordCount').textContent = allData.length;
                 const dates = allData.map(d => d.date).filter(Boolean);
                 if (dates.length > 0) {
@@ -937,12 +835,12 @@
             } catch (e) {
                 console.error('Ошибка загрузки:', e);
                 document.querySelector('.loading').innerHTML =
-                    `<i class="fas fa-exclamation-triangle" style="color:#e74c3c;"></i> Ошибка загрузки данных: ${e.message}`;
+                    `<i class="fas fa-exclamation-triangle" style="color:#e74c3c;"></i> Ошибка: ${e.message}`;
             }
         }
 
         // ================================================================
-        //  5.  ФИЛЬТРЫ
+        //  4.  ФИЛЬТРЫ
         // ================================================================
         function populateFilters() {
             const warehouses = [...new Set(allData.map(d => d.warehouse))].filter(Boolean).sort();
@@ -989,7 +887,6 @@
             renderDashboard();
         }
 
-        // Сброс фильтров
         document.getElementById('resetFilters').addEventListener('click', () => {
             document.getElementById('filterWarehouse').value = 'all';
             document.getElementById('filterCity').value = 'all';
@@ -999,12 +896,23 @@
             applyFilters();
         });
 
-        // Подписка на изменения фильтров
         document.getElementById('filterWarehouse').addEventListener('change', applyFilters);
         document.getElementById('filterCity').addEventListener('change', applyFilters);
         document.getElementById('filterBrand').addEventListener('change', applyFilters);
         document.getElementById('filterDateFrom').addEventListener('change', applyFilters);
         document.getElementById('filterDateTo').addEventListener('change', applyFilters);
+
+        // ================================================================
+        //  5.  ПЕРЕКЛЮЧАТЕЛЬ ТИПОВ КАРТЫ
+        // ================================================================
+        document.querySelectorAll('#mapTypeSelector button').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('#mapTypeSelector button').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                currentMapType = this.dataset.type;
+                renderMap();
+            });
+        });
 
         // ================================================================
         //  6.  РЕНДЕРИНГ ДАШБОРДА
@@ -1016,7 +924,7 @@
                 document.getElementById('kpiCities').textContent = '0';
                 document.getElementById('kpiWarehouses').textContent = '0';
                 document.getElementById('kpiClients').textContent = '0';
-                renderMap([]);
+                renderMap();
                 renderTopCities([]);
                 renderWarehouseChart([]);
                 renderBrandChart([]);
@@ -1038,12 +946,12 @@
             document.getElementById('kpiWarehouses').textContent = warehouses.length;
             document.getElementById('kpiClients').textContent = clients.length;
 
-            // Данные для карты: агрегация по городам
+            // Агрегация по городам для карты и таблицы
             const cityAgg = {};
             filteredData.forEach(d => {
                 if (!cityAgg[d.city]) {
-                    cityAgg[d.city] = { city: d.city, revenue: 0, qty: 0, orders: 0, lat: d.lat || 55.7558, lon: d.lon ||
-                            37.6173 };
+                    cityAgg[d.city] = { city: d.city, revenue: 0, qty: 0, orders: 0, lat: d.lat || 55.7558,
+                        lon: d.lon || 37.6173 };
                 }
                 cityAgg[d.city].revenue += d.revenue;
                 cityAgg[d.city].qty += d.qty;
@@ -1051,7 +959,7 @@
             });
             const cityData = Object.values(cityAgg);
 
-            // Данные для графиков
+            // Графики
             const topCities = cityData.slice().sort((a, b) => b.revenue - a.revenue).slice(0, 10);
 
             const warehouseAgg = {};
@@ -1071,7 +979,6 @@
             const brandData = Object.entries(brandAgg).map(([k, v]) => ({ name: k, value: v }))
                 .sort((a, b) => b.value - a.value);
 
-            // Рендерим
             renderMap(cityData);
             renderTopCities(topCities);
             renderWarehouseChart(warehouseData);
@@ -1081,21 +988,26 @@
         }
 
         // ================================================================
-        //  7.  КАРТА (D3 + ТЕПЛОВАЯ КАРТА)
+        //  7.  КАРТА (несколько вариантов)
         // ================================================================
         function renderMap(cityData) {
             const container = document.getElementById('map-container');
             const tooltip = document.getElementById('mapTooltip');
-            // Очищаем контейнер (оставляем только тултип)
-            const existingSvg = container.querySelector('svg');
-            if (existingSvg) existingSvg.remove();
+            // Удаляем старый svg
+            const oldSvg = container.querySelector('svg');
+            if (oldSvg) oldSvg.remove();
             const loading = document.getElementById('mapLoading');
             if (loading) loading.style.display = 'none';
+
+            if (!cityData || cityData.length === 0) {
+                container.innerHTML = '<div style="text-align:center;padding:40px;color:#8a9aa8;">Нет данных для отображения</div>';
+                return;
+            }
 
             const width = container.clientWidth || 900;
             const height = container.clientHeight || 480;
 
-            // Определяем проекцию для России (центральная)
+            // Проекция
             const projection = d3.geoMercator()
                 .center([60, 65])
                 .scale(width * 0.25)
@@ -1107,149 +1019,286 @@
                 .attr('height', height)
                 .style('background', '#e9eef3');
 
-            // Загружаем геоданные мира и рисуем Россию
+            // Фон России
             const url = 'https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json';
             d3.json(url).then(worldData => {
-                // Извлекаем Россию
                 const countries = topojson.feature(worldData, worldData.objects.countries);
                 const russia = countries.features.find(f => f.properties.name === 'Russia');
-                if (!russia) {
-                    // fallback: рисуем приблизительный контур
-                    drawFallbackMap(svg, width, height);
-                    return;
+                if (russia) {
+                    svg.append('path')
+                        .datum(russia)
+                        .attr('d', d3.geoPath().projection(projection))
+                        .attr('fill', '#d5dde8')
+                        .attr('stroke', '#8a9aa8')
+                        .attr('stroke-width', 0.8);
+                } else {
+                    // упрощённый контур
+                    const pts = [
+                        [30, 80],
+                        [55, 65],
+                        [80, 70],
+                        [100, 80],
+                        [110, 90],
+                        [100, 110],
+                        [80, 120],
+                        [60, 115],
+                        [40, 120],
+                        [30, 110],
+                        [25, 95]
+                    ];
+                    const path = d3.line()(pts.map(p => [p[0] * width / 120, p[1] * height / 130]));
+                    svg.append('path')
+                        .attr('d', path)
+                        .attr('fill', '#d5dde8')
+                        .attr('stroke', '#8a9aa8')
+                        .attr('stroke-width', 1.5);
                 }
 
-                // Рисуем Россию
-                svg.append('path')
-                    .datum(russia)
-                    .attr('d', d3.geoPath().projection(projection))
-                    .attr('fill', '#d5dde8')
-                    .attr('stroke', '#8a9aa8')
-                    .attr('stroke-width', 0.8);
+                // В зависимости от типа карты
+                if (currentMapType === 'bubbles') {
+                    drawBubbles(svg, cityData, projection, tooltip, container);
+                } else if (currentMapType === 'voronoi') {
+                    drawVoronoi(svg, cityData, projection, tooltip, container);
+                } else if (currentMapType === 'delaunay') {
+                    drawDelaunay(svg, cityData, projection, tooltip, container);
+                }
 
-                // Добавляем города
-                const maxRevenue = d3.max(cityData, d => d.revenue) || 1;
-                const radiusScale = d3.scaleSqrt()
-                    .domain([0, maxRevenue])
-                    .range([3, 45]);
-
-                const colorScale = d3.scaleSequential(d3.interpolateOrRd)
-                    .domain([0, maxRevenue]);
-
-                // Города на карте
-                const cityGroup = svg.append('g').attr('class', 'cities');
-
-                cityData.forEach(d => {
-                    const coords = projection([d.lon, d.lat]);
-                    if (!coords) return;
-                    const r = radiusScale(d.revenue) || 3;
-                    const color = colorScale(d.revenue);
-
-                    // Круг
-                    cityGroup.append('circle')
-                        .attr('cx', coords[0])
-                        .attr('cy', coords[1])
-                        .attr('r', r)
-                        .attr('fill', color)
-                        .attr('stroke', '#fff')
-                        .attr('stroke-width', 1.5)
-                        .attr('opacity', 0.85)
-                        .style('cursor', 'pointer')
-                        .on('mouseenter', function(event) {
-                            const el = d3.select(this);
-                            el.attr('stroke-width', 3).attr('opacity', 1);
-                            tooltip.innerHTML =
-                                `<strong>${d.city}</strong><br>Выручка: ${d.revenue.toLocaleString('ru-RU')} ₽<br>Отгрузок: ${d.qty.toLocaleString('ru-RU')} ед.<br>Заказов: ${d.orders}`;
-                            tooltip.classList.add('show');
-                            tooltip.style.left = (event.pageX - container.getBoundingClientRect().left +
-                                12) + 'px';
-                            tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) +
-                                'px';
-                        })
-                        .on('mousemove', function(event) {
-                            tooltip.style.left = (event.pageX - container.getBoundingClientRect().left +
-                                12) + 'px';
-                            tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) +
-                                'px';
-                        })
-                        .on('mouseleave', function() {
-                            d3.select(this).attr('stroke-width', 1.5).attr('opacity', 0.85);
-                            tooltip.classList.remove('show');
-                        })
-                        .on('click', function() {
-                            // Фильтр по городу
-                            document.getElementById('filterCity').value = d.city;
-                            applyFilters();
-                        });
-
-                    // Подпись для крупных городов
-                    if (d.revenue > maxRevenue * 0.15 || r > 15) {
-                        cityGroup.append('text')
-                            .attr('x', coords[0])
-                            .attr('y', coords[1] - r - 6)
-                            .attr('text-anchor', 'middle')
-                            .attr('font-size', r > 20 ? '11px' : '9px')
-                            .attr('fill', '#1a2634')
-                            .attr('font-weight', '500')
-                            .style('pointer-events', 'none')
-                            .text(d.city.length > 12 ? d.city.slice(0, 10) + '…' : d.city);
-                    }
-                });
-
-                // Легенда на карте
+                // Легенда — общая
                 // (уже есть отдельный блок)
-
-            }).catch(err => {
-                console.warn('Ошибка загрузки карты мира:', err);
-                drawFallbackMap(svg, width, height);
+            }).catch(() => {
+                // fallback: рисуем пузырьки без карты
+                drawBubbles(svg, cityData, projection, tooltip, container);
             });
         }
 
-        // Фолбэк-карта если геоданные не загрузились
-        function drawFallbackMap(svg, width, height) {
-            svg.append('text')
-                .attr('x', width / 2)
-                .attr('y', height / 2 - 30)
-                .attr('text-anchor', 'middle')
-                .attr('font-size', '16px')
-                .attr('fill', '#6b7a8a')
-                .text('Карта России (упрощённая)');
+        // ---- Вариант 1: Пузырьки (bubbles) ----
+        function drawBubbles(svg, cityData, projection, tooltip, container) {
+            const maxRevenue = d3.max(cityData, d => d.revenue) || 1;
+            const radiusScale = d3.scaleSqrt()
+                .domain([0, maxRevenue])
+                .range([3, 45]);
 
-            // Рисуем простой контур
-            const points = [
-                [30, 80],
-                [55, 65],
-                [80, 70],
-                [100, 80],
-                [110, 90],
-                [100, 110],
-                [80, 120],
-                [60, 115],
-                [40, 120],
-                [30, 110],
-                [25, 95]
-            ];
-            const path = d3.line()(points.map(p => [p[0] * width / 120, p[1] * height / 130]));
-            svg.append('path')
-                .attr('d', path)
-                .attr('fill', '#d5dde8')
-                .attr('stroke', '#8a9aa8')
-                .attr('stroke-width', 1.5);
+            const colorScale = d3.scaleSequential(d3.interpolateOrRd)
+                .domain([0, maxRevenue]);
 
-            svg.append('text')
-                .attr('x', width / 2)
-                .attr('y', height / 2 + 20)
-                .attr('text-anchor', 'middle')
-                .attr('font-size', '13px')
-                .attr('fill', '#8a9aa8')
-                .text('Города отмечены на интерактивной карте');
+            const g = svg.append('g').attr('class', 'bubbles');
+
+            cityData.forEach(d => {
+                const coords = projection([d.lon, d.lat]);
+                if (!coords) return;
+                const r = radiusScale(d.revenue) || 3;
+                const color = colorScale(d.revenue);
+
+                g.append('circle')
+                    .attr('cx', coords[0])
+                    .attr('cy', coords[1])
+                    .attr('r', r)
+                    .attr('fill', color)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 1.5)
+                    .attr('opacity', 0.85)
+                    .style('cursor', 'pointer')
+                    .on('mouseenter', function(event) {
+                        d3.select(this).attr('stroke-width', 3).attr('opacity', 1);
+                        tooltip.innerHTML =
+                            `<strong>${d.city}</strong><br>Выручка: ${d.revenue.toLocaleString('ru-RU')} ₽<br>Отгрузок: ${d.qty.toLocaleString('ru-RU')} ед.<br>Заказов: ${d.orders}`;
+                        tooltip.classList.add('show');
+                        tooltip.style.left = (event.pageX - container.getBoundingClientRect().left + 12) + 'px';
+                        tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) + 'px';
+                    })
+                    .on('mousemove', function(event) {
+                        tooltip.style.left = (event.pageX - container.getBoundingClientRect().left + 12) + 'px';
+                        tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) + 'px';
+                    })
+                    .on('mouseleave', function() {
+                        d3.select(this).attr('stroke-width', 1.5).attr('opacity', 0.85);
+                        tooltip.classList.remove('show');
+                    })
+                    .on('click', function() {
+                        document.getElementById('filterCity').value = d.city;
+                        applyFilters();
+                    });
+
+                // Подпись для крупных
+                if (d.revenue > maxRevenue * 0.15 || r > 15) {
+                    g.append('text')
+                        .attr('x', coords[0])
+                        .attr('y', coords[1] - r - 6)
+                        .attr('text-anchor', 'middle')
+                        .attr('font-size', r > 20 ? '11px' : '9px')
+                        .attr('fill', '#1a2634')
+                        .attr('font-weight', '500')
+                        .style('pointer-events', 'none')
+                        .text(d.city.length > 12 ? d.city.slice(0, 10) + '…' : d.city);
+                }
+            });
+
+            document.getElementById('mapNote').textContent = 'Наведите на круг для деталей, кликните для фильтрации';
+        }
+
+        // ---- Вариант 2: Диаграмма Вороного ----
+        function drawVoronoi(svg, cityData, projection, tooltip, container) {
+            // Строим точки в проекции
+            const points = cityData.map(d => {
+                const coords = projection([d.lon, d.lat]);
+                return { x: coords ? coords[0] : 0, y: coords ? coords[1] : 0, data: d };
+            }).filter(p => p.x && p.y);
+
+            if (points.length < 3) {
+                drawBubbles(svg, cityData, projection, tooltip, container);
+                return;
+            }
+
+            const width = +svg.attr('width');
+            const height = +svg.attr('height');
+
+            const voronoi = d3.Delaunay.from(points.map(p => [p.x, p.y]))
+                .voronoi([0, 0, width, height]);
+
+            const maxRevenue = d3.max(cityData, d => d.revenue) || 1;
+            const colorScale = d3.scaleSequential(d3.interpolateOrRd)
+                .domain([0, maxRevenue]);
+
+            const g = svg.append('g').attr('class', 'voronoi');
+
+            // Рисуем ячейки
+            points.forEach((p, i) => {
+                const cell = voronoi.cellPolygon(i);
+                if (!cell) return;
+                const color = colorScale(p.data.revenue);
+                g.append('path')
+                    .attr('d', 'M' + cell.join('L') + 'Z')
+                    .attr('fill', color)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 0.8)
+                    .attr('opacity', 0.7)
+                    .style('cursor', 'pointer')
+                    .on('mouseenter', function(event) {
+                        d3.select(this).attr('opacity', 1);
+                        tooltip.innerHTML =
+                            `<strong>${p.data.city}</strong><br>Выручка: ${p.data.revenue.toLocaleString('ru-RU')} ₽<br>Отгрузок: ${p.data.qty.toLocaleString('ru-RU')} ед.<br>Заказов: ${p.data.orders}`;
+                        tooltip.classList.add('show');
+                        tooltip.style.left = (event.pageX - container.getBoundingClientRect().left + 12) + 'px';
+                        tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) + 'px';
+                    })
+                    .on('mousemove', function(event) {
+                        tooltip.style.left = (event.pageX - container.getBoundingClientRect().left + 12) + 'px';
+                        tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) + 'px';
+                    })
+                    .on('mouseleave', function() {
+                        d3.select(this).attr('opacity', 0.7);
+                        tooltip.classList.remove('show');
+                    })
+                    .on('click', function() {
+                        document.getElementById('filterCity').value = p.data.city;
+                        applyFilters();
+                    });
+            });
+
+            // Отметим центры городов
+            points.forEach(p => {
+                g.append('circle')
+                    .attr('cx', p.x)
+                    .attr('cy', p.y)
+                    .attr('r', 4)
+                    .attr('fill', '#fff')
+                    .attr('stroke', '#1a2634')
+                    .attr('stroke-width', 1.5);
+            });
+
+            document.getElementById('mapNote').textContent =
+            'Ячейки Вороного — зоны влияния городов. Наведите для деталей, кликните для фильтрации';
+        }
+
+        // ---- Вариант 3: Интерполяция (триангуляция Делоне) ----
+        function drawDelaunay(svg, cityData, projection, tooltip, container) {
+            const points = cityData.map(d => {
+                const coords = projection([d.lon, d.lat]);
+                return { x: coords ? coords[0] : 0, y: coords ? coords[1] : 0, data: d };
+            }).filter(p => p.x && p.y);
+
+            if (points.length < 3) {
+                drawBubbles(svg, cityData, projection, tooltip, container);
+                return;
+            }
+
+            const width = +svg.attr('width');
+            const height = +svg.attr('height');
+
+            // Триангуляция Делоне
+            const delaunay = d3.Delaunay.from(points.map(p => [p.x, p.y]));
+            const triangles = delaunay.trianglePolygons();
+
+            const maxRevenue = d3.max(cityData, d => d.revenue) || 1;
+            const colorScale = d3.scaleSequential(d3.interpolateOrRd)
+                .domain([0, maxRevenue]);
+
+            const g = svg.append('g').attr('class', 'delaunay');
+
+            // Для каждого треугольника вычисляем среднюю выручку по трём вершинам
+            triangles.forEach(poly => {
+                // poly - массив точек [x,y] для треугольника
+                // Найдём соответствующие точки данных
+                const triPoints = poly.map(p => {
+                    // ищем ближайшую точку из points
+                    let best = null;
+                    let minDist = Infinity;
+                    for (const pt of points) {
+                        const dx = pt.x - p[0],
+                            dy = pt.y - p[1];
+                        const dist = dx * dx + dy * dy;
+                        if (dist < minDist) { minDist = dist;
+                            best = pt; }
+                    }
+                    return best;
+                });
+                const avgRevenue = d3.mean(triPoints, d => d ? d.data.revenue : 0) || 0;
+                const color = colorScale(avgRevenue);
+
+                g.append('path')
+                    .attr('d', 'M' + poly.join('L') + 'Z')
+                    .attr('fill', color)
+                    .attr('stroke', '#fff')
+                    .attr('stroke-width', 0.5)
+                    .attr('opacity', 0.6)
+                    .style('cursor', 'pointer')
+                    .on('mouseenter', function(event) {
+                        d3.select(this).attr('opacity', 0.9);
+                        const cityNames = triPoints.map(p => p ? p.data.city : '').filter(Boolean).join(', ');
+                        tooltip.innerHTML =
+                            `<strong>Треугольник</strong><br>Города: ${cityNames}<br>Средняя выручка: ${avgRevenue.toLocaleString('ru-RU')} ₽`;
+                        tooltip.classList.add('show');
+                        tooltip.style.left = (event.pageX - container.getBoundingClientRect().left + 12) + 'px';
+                        tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) + 'px';
+                    })
+                    .on('mousemove', function(event) {
+                        tooltip.style.left = (event.pageX - container.getBoundingClientRect().left + 12) + 'px';
+                        tooltip.style.top = (event.pageY - container.getBoundingClientRect().top - 30) + 'px';
+                    })
+                    .on('mouseleave', function() {
+                        d3.select(this).attr('opacity', 0.6);
+                        tooltip.classList.remove('show');
+                    });
+            });
+
+            // Отметим центры городов
+            points.forEach(p => {
+                g.append('circle')
+                    .attr('cx', p.x)
+                    .attr('cy', p.y)
+                    .attr('r', 3)
+                    .attr('fill', '#fff')
+                    .attr('stroke', '#1a2634')
+                    .attr('stroke-width', 1.5);
+            });
+
+            document.getElementById('mapNote').textContent =
+                'Триангуляция — интерполяция выручки между городами. Наведите для деталей.';
         }
 
         // ================================================================
-        //  8.  ГРАФИКИ
+        //  8.  ГРАФИКИ (без изменений)
         // ================================================================
-
-        // Топ-10 городов (бар-чарт)
         function renderTopCities(data) {
             const container = document.getElementById('topCitiesChart');
             container.innerHTML = '';
@@ -1285,7 +1334,6 @@
             const colorScale = d3.scaleSequential(d3.interpolateBlues)
                 .domain([0, maxVal]);
 
-            // Бары
             g.selectAll('.bar')
                 .data(data)
                 .enter()
@@ -1304,27 +1352,24 @@
                 .append('title')
                 .text(d => `${d.city}: ${d.revenue.toLocaleString('ru-RU')} ₽`);
 
-            // Ось X
             g.append('g')
                 .attr('transform', `translate(0,${innerHeight})`)
                 .call(d3.axisBottom(xScale).tickSize(0))
                 .style('font-size', '10px')
                 .style('color', '#6b7a8a');
 
-            // Ось Y
             g.append('g')
                 .call(d3.axisLeft(yScale).ticks(5, '.0s'))
                 .style('font-size', '10px')
                 .style('color', '#6b7a8a');
         }
 
-        // График по складам (горизонтальные бары)
         function renderWarehouseChart(data) {
             const container = document.getElementById('warehouseChart');
             container.innerHTML = '';
             if (data.length === 0) {
                 container.innerHTML =
-                '<div style="text-align:center;padding:10px;color:#8a9aa8;font-size:13px;">Нет данных</div>';
+                    '<div style="text-align:center;padding:10px;color:#8a9aa8;font-size:13px;">Нет данных</div>';
                 return;
             }
             const top = data.slice(0, 8);
@@ -1374,13 +1419,12 @@
                 .style('color', '#6b7a8a');
         }
 
-        // График по типам Brand (круговая диаграмма)
         function renderBrandChart(data) {
             const container = document.getElementById('brandChart');
             container.innerHTML = '';
             if (data.length === 0) {
                 container.innerHTML =
-                '<div style="text-align:center;padding:10px;color:#8a9aa8;font-size:13px;">Нет данных</div>';
+                    '<div style="text-align:center;padding:10px;color:#8a9aa8;font-size:13px;">Нет данных</div>';
                 return;
             }
             const top = data.slice(0, 7);
@@ -1420,7 +1464,6 @@
                 .append('title')
                 .text(d => `${d.data.name}: ${d.data.value.toLocaleString('ru-RU')} ₽`);
 
-            // Маленькие подписи для крупных сегментов
             arcs.append('text')
                 .attr('transform', d => `translate(${arc.centroid(d)})`)
                 .attr('text-anchor', 'middle')
@@ -1440,11 +1483,10 @@
         function renderTable(cityData) {
             const tbody = document.getElementById('tableBody');
             if (cityData.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:#8a9aa8;">Нет данных</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:30px;color:#8a9aa8;">Нет данных</td></tr>';
                 return;
             }
 
-            // Сортируем
             const sorted = [...cityData].sort((a, b) => {
                 let valA = a[sortKey] || 0;
                 let valB = b[sortKey] || 0;
@@ -1468,7 +1510,6 @@
                         <td class="vol-cell">${d.revenue.toLocaleString('ru-RU')}</td>
                         <td>${d.qty.toLocaleString('ru-RU', {maximumFractionDigits:0})}</td>
                         <td>${d.orders}</td>
-                        <td>—</td>
                         <td>
                             <div class="bar-cell">
                                 <div class="bar" style="width:${barWidth}%;background:${pct > 20 ? '#e34a33' : pct > 10 ? '#fdbb84' : '#1a4b7a'};"></div>
@@ -1479,7 +1520,6 @@
             }).join('');
         }
 
-        // Сортировка по клику на заголовок
         document.querySelectorAll('#dataTable th[data-sort]').forEach(th => {
             th.addEventListener('click', function() {
                 const key = this.dataset.sort;
@@ -1496,13 +1536,11 @@
         function renderInsights(cityData, warehouseData) {
             const list = document.getElementById('insightsList');
             const insights = [];
-
             if (cityData.length === 0) {
                 list.innerHTML = '<li><i class="fas fa-info-circle"></i> Нет данных для анализа</li>';
                 return;
             }
 
-            // Топ-город
             const topCity = cityData.slice().sort((a, b) => b.revenue - a.revenue)[0];
             if (topCity) {
                 insights.push(
@@ -1510,7 +1548,6 @@
                     );
             }
 
-            // Концентрация
             const total = d3.sum(cityData, d => d.revenue);
             const top3 = cityData.slice().sort((a, b) => b.revenue - a.revenue).slice(0, 3);
             const top3Sum = d3.sum(top3, d => d.revenue);
@@ -1522,7 +1559,6 @@
                 insights.push(`📊 Распределение выручки относительно равномерное (топ-3: ${pct3.toFixed(0)}%).`);
             }
 
-            // Склады
             if (warehouseData.length > 1) {
                 const topWh = warehouseData[0];
                 const pctWh = topWh.value / d3.sum(warehouseData, d => d.value) * 100;
@@ -1537,7 +1573,6 @@
                 }
             }
 
-            // Рекомендации по городам с большим потенциалом
             const avgRevenue = total / cityData.length;
             const highPotential = cityData.filter(d => d.revenue > avgRevenue && d.revenue < avgRevenue * 2)
                 .sort((a, b) => b.revenue - a.revenue).slice(0, 3);
@@ -1545,16 +1580,6 @@
                 const cities = highPotential.map(d => d.city).join(', ');
                 insights.push(
                     `🚀 Города со средним потенциалом: <strong>${cities}</strong>. Усильте маркетинг для роста.`);
-            }
-
-            // Если есть город с очень малым количеством отгрузок но высоким потенциалом
-            const lowQtyHighValue = cityData.filter(d => d.orders < 5 && d.revenue > avgRevenue * 0.5)
-                .sort((a, b) => b.revenue - a.revenue).slice(0, 2);
-            if (lowQtyHighValue.length > 0) {
-                const names = lowQtyHighValue.map(d => d.city).join(', ');
-                insights.push(
-                    `💡 В городах <strong>${names}</strong> высокий средний чек при малом числе заказов — увеличьте присутствие.`
-                    );
             }
 
             if (insights.length === 0) {
@@ -1568,16 +1593,9 @@
         //  11. ЗАПУСК
         // ================================================================
         loadData();
-
-        // Адаптивный ресайз графиков
-        window.addEventListener('resize', () => {
-            if (filteredData.length > 0) renderDashboard();
-        });
-
-        // При переключении вкладки — перерисовать
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && filteredData.length > 0) renderDashboard();
-        });
+        window.addEventListener('resize', () => { if (filteredData.length > 0) renderDashboard(); });
+        document.addEventListener('visibilitychange', () => { if (!document.hidden && filteredData.length > 0) renderDashboard
+            (); });
     </script>
 </body>
 </html>
