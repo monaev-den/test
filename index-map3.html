@@ -3,482 +3,213 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Дэшборд 10-07 00-03</title>
+    <title>Тепловая карта 10-07 00-08</title>
+    
+    <!-- PapaParse для чтения CSV -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.4.1/papaparse.min.js"></script>
+    <!-- Leaflet -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/leaflet-heat.js"></script>
+    <!-- Chart.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            margin: 0;
-            padding: 0;
-            background: #f4f6f9;
-            color: #333;
-        }
-        header {
-            background: linear-gradient(135deg, #1e3a8a, #3b82f6);
-            color: white;
-            padding: 1.5rem;
-            text-align: center;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        }
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-            gap: 20px;
-        }
-        .card {
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-            padding: 20px;
-            overflow: hidden;
-        }
-        .card h2 {
-            margin: 0 0 15px 0;
-            color: #1e40af;
-            border-bottom: 2px solid #e5e7eb;
-            padding-bottom: 10px;
-        }
-        #map, #map2, #map3 {
-            height: 520px;
-            border-radius: 8px;
-            border: 1px solid #ddd;
-        }
-        .kpi {
-            display: flex;
-            justify-content: space-around;
-            text-align: center;
-            margin: 20px 0;
-        }
-        .kpi-item {
-            flex: 1;
-        }
-        .kpi-value {
-            font-size: 2.2rem;
-            font-weight: bold;
-            color: #1e40af;
-        }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 15px;
-        }
-        th, td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #eee;
-        }
-        th {
-            background: #f8fafc;
-            color: #374151;
-        }
-        .legend {
-            font-size: 0.9rem;
-            color: #666;
-        }
-        .tabs {
-            display: flex;
-            margin-bottom: 15px;
-            border-bottom: 2px solid #e5e7eb;
-        }
-        .tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            font-weight: 500;
-        }
-        .tab.active {
-            border-bottom: 3px solid #3b82f6;
-            color: #1e40af;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin:0; padding:0; background:#f4f6f9; color:#333; }
+        header { background: linear-gradient(135deg, #1e3a8a, #3b82f6); color:white; padding:1.5rem; text-align:center; }
+        .container { max-width: 1480px; margin:0 auto; padding:20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
+        .card { background:white; border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,0.1); padding:20px; }
+        .card h2 { margin:0 0 15px 0; color:#1e40af; }
+        #map, #map2, #map3 { height: 520px; border-radius:8px; border:1px solid #ddd; }
+        .kpi { display:flex; justify-content:space-around; text-align:center; margin:20px 0; }
+        .kpi-value { font-size:2.4rem; font-weight:bold; color:#1e40af; }
+        table { width:100%; border-collapse:collapse; }
+        th, td { padding:10px; border-bottom:1px solid #eee; }
+        th { background:#f8fafc; }
     </style>
 </head>
 <body>
     <header>
-        <h1>📦 Аналитический дэшборд отгрузок — Июль 2026</h1>
-        <p>Данные из 1сsales.csv • Тепловые карты по городам и складам России</p>
+        <h1>📦 Дэшборд отгрузок — Июль 2026</h1>
+        <p>Анализ продаж из файла <strong>1сsales.csv</strong></p>
     </header>
 
     <div class="container">
-        <!-- KPI Row -->
         <div class="card">
             <h2>Ключевые показатели</h2>
-            <div class="kpi" id="kpi-container">
-                <!-- JS populated -->
-            </div>
+            <div class="kpi" id="kpis"></div>
         </div>
 
         <div class="grid">
-            <!-- Map 1: Heatmap shipments by city -->
             <div class="card">
-                <h2>🌡️ Тепловая карта отгрузок по городам (Heatmap)</h2>
+                <h2>🌡️ Тепловая карта отгрузок по городам</h2>
                 <div id="map"></div>
-                <div class="legend">Интенсивность = объём в базовых единицах</div>
             </div>
-
-            <!-- Map 2: Bubble / Circle markers by warehouse -->
             <div class="card">
-                <h2>📍 Отгрузки по городам с маркерами (по складам)</h2>
+                <h2>📍 Маркеры по складам</h2>
                 <div id="map2"></div>
-                <small style="color:#666;">Синий = Основной склад Частная Марка • Красный = Казань</small>
             </div>
-
-            <!-- Map 3: Simple choropleth approximation with circles sized by value -->
             <div class="card">
-                <h2>🔴 Круговая тепловая карта (размер = сумма RUR)</h2>
+                <h2>🔴 Круги по сумме (RUR)</h2>
                 <div id="map3"></div>
             </div>
         </div>
 
         <div class="grid">
-            <!-- Top Cities Table -->
             <div class="card">
-                <h2>🏙️ Топ-15 городов по объёму (базовые единицы)</h2>
-                <table id="top-cities-table">
-                    <thead><tr><th>Город</th><th>Кол-во баз.ед.</th><th>Сумма RUR</th><th>Заказов</th></tr></thead>
-                    <tbody></tbody>
-                </table>
+                <h2>🏙️ Топ-15 городов</h2>
+                <table id="topCities"><thead><tr><th>Город</th><th>Баз. ед.</th><th>Сумма ₽</th><th>Строк</th></tr></thead><tbody></tbody></table>
             </div>
-
-            <!-- Warehouse Breakdown -->
             <div class="card">
-                <h2>🏭 Отгрузки по складам</h2>
-                <canvas id="warehouseChart" height="280"></canvas>
-            </div>
-        </div>
-
-        <div class="grid">
-            <!-- Top Responsible -->
-            <div class="card">
-                <h2>👤 Топ менеджеров (по сумме)</h2>
-                <canvas id="managerChart" height="280"></canvas>
-            </div>
-
-            <!-- Brand Type -->
-            <div class="card">
-                <h2>🏷️ Распределение по Brand Type</h2>
-                <canvas id="brandChart" height="280"></canvas>
+                <h2>🏭 По складам</h2>
+                <canvas id="whChart" height="300"></canvas>
             </div>
         </div>
     </div>
 
     <script>
-        // ==================== CONFIG & DATA PARSING ====================
+        // ==================== ДАННЫЕ ====================
         let allData = [];
-        let cityMap = new Map(); // city -> aggregated stats
-        let warehouseMap = new Map();
-        let managerMap = new Map();
-        let brandMap = new Map();
-
-        // Approximate coordinates for major Russian cities (lat, lng)
         const cityCoords = {
-            "Тюмень": [57.15, 65.53],
-            "Екатеринбург": [56.84, 60.60],
-            "Челябинск": [55.16, 61.40],
-            "Тамбов": [52.72, 41.44],
-            "Оренбург": [51.77, 55.10],
-            "Пермь": [58.01, 56.25],
-            "Санкт-Петербург": [59.93, 30.31],
-            "Нефтеюганск": [60.10, 72.60],
-            "Нижний Новгород": [56.30, 44.00],
-            "Вологда": [59.22, 39.88],
-            "Самара": [53.19, 50.12],
-            "Краснодар": [45.04, 38.98],
-            "Воронеж": [51.67, 39.21],
-            "Кемерово": [55.34, 86.08],
-            "Нижневартовск": [60.93, 76.57],
-            "Шебекино": [50.40, 36.90],
-            "Мирный": [62.53, 113.96], // approximate
-            "Новокузнецк": [53.76, 87.14],
-            "Ижевск": [56.85, 53.21],
-            "Ульяновск": [54.32, 48.40],
-            "Воскресенск": [55.32, 38.70],
-            "Подольск": [55.42, 37.55],
-            "Ярославль": [57.63, 39.87],
-            "Иваново": [57.00, 40.97],
-            "Курск": [51.73, 36.19],
-            "Киров": [58.60, 49.67],
-            "Пенза": [53.20, 45.02],
-            "Благовещенск": [50.29, 127.54],
-            "Красноярск": [56.01, 92.89],
-            "Ростов-на-Дону": [47.23, 39.70],
-            "Уфа": [54.74, 55.97],
-            "Москва": [55.76, 37.62],
-            "Саратов": [51.53, 46.04],
-            "Волгоград": [48.71, 44.51],
-            "Казань": [55.79, 49.12],
-            // Add more as needed from data
+            "Тюмень": [57.15, 65.53], "Екатеринбург": [56.84, 60.60], "Челябинск": [55.16, 61.40],
+            "Тамбов": [52.72, 41.44], "Оренбург": [51.77, 55.10], "Пермь": [58.01, 56.25],
+            "Санкт-Петербург": [59.93, 30.31], "Нижний Новгород": [56.30, 44.00], "Самара": [53.19, 50.12],
+            "Краснодар": [45.04, 38.98], "Воронеж": [51.67, 39.21], "Кемерово": [55.34, 86.08],
+            "Москва": [55.76, 37.62], "Казань": [55.79, 49.12], "Уфа": [54.74, 55.97],
+            "Красноярск": [56.01, 92.89], "Ростов-на-Дону": [47.23, 39.70], /* добавляйте по необходимости */
         };
 
-        function normalizeCity(name) {
-            const match = name.match(/\(([^)]+)\)/);
-            if (match) {
-                let city = match[1].replace(' г.', '').trim();
-                return city;
-            }
-            return name.trim();
+        function normalizeCity(str) {
+            const m = str.match(/\(([^)]+)\)/);
+            return m ? m[1].replace(' г.', '').trim() : str.trim();
         }
 
-        function parseCSV(data) {
-            // Skip header rows - the real data starts after the column names row
-            const rows = data.split('\n');
-            let startIndex = 0;
-            for (let i = 0; i < rows.length; i++) {
-                if (rows[i].includes('Склад;Контрагент;')) {
-                    startIndex = i + 1;
-                    break;
-                }
-            }
+        // ==================== ЗАГРУЗКА CSV ====================
+        fetch('1сsales.csv')
+            .then(r => r.text())
+            .then(csvText => {
+                // Пропускаем заголовки
+                const lines = csvText.split('\n');
+                let dataStart = lines.findIndex(line => line.includes('Склад;Контрагент;'));
+                const cleanCSV = lines.slice(dataStart + 1).join('\n');
 
-            const csvContent = rows.slice(startIndex).join('\n');
-            
-            Papa.parse(csvContent, {
-                header: true,
-                delimiter: ";",
-                skipEmptyLines: true,
-                complete: function(results) {
-                    allData = results.data.filter(row => row.Склад && row.Контрагент);
-                    processData();
-                    renderDashboard();
-                }
+                Papa.parse(cleanCSV, {
+                    header: true,
+                    delimiter: ";",
+                    skipEmptyLines: true,
+                    complete: results => {
+                        allData = results.data.filter(row => row.Склад && row.Контрагент);
+                        processAndRender();
+                    }
+                });
+            })
+            .catch(err => {
+                console.error(err);
+                alert("Не удалось загрузить 1сsales.csv\nУбедитесь, что файл лежит рядом с index.html");
             });
-        }
 
-        function processData() {
-            cityMap.clear();
-            warehouseMap.clear();
-            managerMap.clear();
-            brandMap.clear();
+        function processAndRender() {
+            const cityStats = new Map();
+            const whStats = new Map();
+            let totalSum = 0, totalQty = 0;
 
             allData.forEach(row => {
-                const warehouse = row.Склад || 'Неизвестно';
-                const counterparty = row.Контрагент || '';
-                const cityRaw = normalizeCity(counterparty);
-                const brand = row['Brand type'] || 'Другое';
-                const manager = row.Ответственный || 'Неизвестно';
-                const sumStr = (row['Сумма продажи в RUR'] || '0').replace(/\s/g, '').replace(',', '.');
-                const qtyBaseStr = (row['Количество (в базовых единицах)'] || '0').replace(/\s/g, '').replace(',', '.');
-                
-                const sumRUR = parseFloat(sumStr) || 0;
-                const qtyBase = parseFloat(qtyBaseStr) || 0;
+                const city = normalizeCity(row.Контрагент || '');
+                const wh = row.Склад || 'Неизвестно';
+                const sum = parseFloat((row['Сумма продажи в RUR'] || '0').replace(/\s/g,'').replace(',','.')) || 0;
+                const qty = parseFloat((row['Количество (в базовых единицах)'] || '0').replace(/\s/g,'').replace(',','.')) || 0;
 
-                // City aggregation
-                if (!cityMap.has(cityRaw)) {
-                    cityMap.set(cityRaw, { qtyBase: 0, sumRUR: 0, count: 0, warehouse: warehouse });
-                }
-                const cityData = cityMap.get(cityRaw);
-                cityData.qtyBase += qtyBase;
-                cityData.sumRUR += sumRUR;
-                cityData.count += 1;
+                totalSum += sum;
+                totalQty += qty;
 
-                // Warehouse
-                if (!warehouseMap.has(warehouse)) warehouseMap.set(warehouse, { qty: 0, sum: 0 });
-                const wh = warehouseMap.get(warehouse);
-                wh.qty += qtyBase;
-                wh.sum += sumRUR;
+                if (!cityStats.has(city)) cityStats.set(city, {qty:0, sum:0, count:0});
+                const c = cityStats.get(city);
+                c.qty += qty; c.sum += sum; c.count++;
 
-                // Manager
-                if (!managerMap.has(manager)) managerMap.set(manager, { sum: 0 });
-                managerMap.get(manager).sum += sumRUR;
-
-                // Brand
-                if (!brandMap.has(brand)) brandMap.set(brand, 0);
-                brandMap.set(brand, brandMap.get(brand) + sumRUR);
-            });
-        }
-
-        function renderDashboard() {
-            renderKPIs();
-            renderTopCities();
-            renderCharts();
-            renderMaps();
-        }
-
-        function renderKPIs() {
-            let totalSum = 0;
-            let totalQty = 0;
-            let totalOrders = allData.length;
-
-            allData.forEach(row => {
-                const sumStr = (row['Сумма продажи в RUR'] || '0').replace(/\s/g, '').replace(',', '.');
-                const qtyStr = (row['Количество (в базовых единицах)'] || '0').replace(/\s/g, '').replace(',', '.');
-                totalSum += parseFloat(sumStr) || 0;
-                totalQty += parseFloat(qtyStr) || 0;
+                if (!whStats.has(wh)) whStats.set(wh, {qty:0, sum:0});
+                const w = whStats.get(wh);
+                w.qty += qty; w.sum += sum;
             });
 
-            const container = document.getElementById('kpi-container');
-            container.innerHTML = `
-                <div class="kpi-item">
-                    <div class="kpi-value">${totalSum.toLocaleString('ru-RU')}</div>
-                    <div>Сумма, RUR</div>
-                </div>
-                <div class="kpi-item">
-                    <div class="kpi-value">${Math.round(totalQty).toLocaleString('ru-RU')}</div>
-                    <div>Базовые единицы</div>
-                </div>
-                <div class="kpi-item">
-                    <div class="kpi-value">${totalOrders}</div>
-                    <div>Позиций / строк</div>
-                </div>
-                <div class="kpi-item">
-                    <div class="kpi-value">${cityMap.size}</div>
-                    <div>Городов</div>
-                </div>
+            renderKPIs(totalSum, totalQty, cityStats.size);
+            renderTopCities(cityStats);
+            renderWarehouseChart(whStats);
+            renderMaps(cityStats);
+        }
+
+        function renderKPIs(sum, qty, cities) {
+            document.getElementById('kpis').innerHTML = `
+                <div><div class="kpi-value">${Math.round(sum).toLocaleString('ru-RU')}</div><small>Сумма, ₽</small></div>
+                <div><div class="kpi-value">${Math.round(qty).toLocaleString('ru-RU')}</div><small>Баз. ед.</small></div>
+                <div><div class="kpi-value">${cities}</div><small>Городов</small></div>
             `;
         }
 
-        function renderTopCities() {
-            const tbody = document.querySelector('#top-cities-table tbody');
+        function renderTopCities(cityStats) {
+            const tbody = document.querySelector('#topCities tbody');
             tbody.innerHTML = '';
+            Array.from(cityStats.entries())
+                .sort((a,b) => b[1].qty - a[1].qty)
+                .slice(0,15)
+                .forEach(([city, s]) => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td>${city}</td><td>${Math.round(s.qty).toLocaleString('ru-RU')}</td><td>${s.sum.toLocaleString('ru-RU')}</td><td>${s.count}</td>`;
+                    tbody.appendChild(tr);
+                });
+        }
 
-            const sortedCities = Array.from(cityMap.entries())
-                .sort((a, b) => b[1].qtyBase - a[1].qtyBase)
-                .slice(0, 15);
-
-            sortedCities.forEach(([city, stats]) => {
-                const tr = document.createElement('tr');
-                tr.innerHTML = `
-                    <td>${city}</td>
-                    <td>${Math.round(stats.qtyBase).toLocaleString('ru-RU')}</td>
-                    <td>${stats.sumRUR.toLocaleString('ru-RU')}</td>
-                    <td>${stats.count}</td>
-                `;
-                tbody.appendChild(tr);
+        function renderWarehouseChart(whStats) {
+            const ctx = document.getElementById('whChart');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Array.from(whStats.keys()),
+                    datasets: [{ label: 'Базовые единицы', data: Array.from(whStats.values()).map(v=>v.qty), backgroundColor: '#3b82f6' }]
+                },
+                options: { responsive: true, plugins: { legend: { display: false }}}
             });
         }
 
-        function renderCharts() {
-            // Warehouse Chart
-            const whLabels = Array.from(warehouseMap.keys());
-            const whData = whLabels.map(w => warehouseMap.get(w).qty);
-
-            new Chart(document.getElementById('warehouseChart'), {
-                type: 'bar',
-                data: {
-                    labels: whLabels,
-                    datasets: [{
-                        label: 'Базовые единицы',
-                        data: whData,
-                        backgroundColor: '#3b82f6'
-                    }]
-                },
-                options: { responsive: true, plugins: { legend: { display: false } } }
-            });
-
-            // Manager Chart (top 8)
-            const sortedManagers = Array.from(managerMap.entries())
-                .sort((a,b) => b[1].sum - a[1].sum)
-                .slice(0, 8);
-            
-            new Chart(document.getElementById('managerChart'), {
-                type: 'bar',
-                data: {
-                    labels: sortedManagers.map(m => m[0].split(' ')[0]),
-                    datasets: [{
-                        label: 'Сумма RUR',
-                        data: sortedManagers.map(m => m[1].sum),
-                        backgroundColor: '#10b981'
-                    }]
-                },
-                options: { responsive: true }
-            });
-
-            // Brand Chart
-            const brandLabels = Array.from(brandMap.keys());
-            const brandData = brandLabels.map(b => brandMap.get(b));
-            new Chart(document.getElementById('brandChart'), {
-                type: 'pie',
-                data: {
-                    labels: brandLabels,
-                    datasets: [{
-                        data: brandData,
-                        backgroundColor: ['#3b82f6', '#ef4444', '#eab308', '#8b5cf6', '#14b8a6']
-                    }]
-                },
-                options: { responsive: true }
-            });
-        }
-
-        function renderMaps() {
-            // Map 1: Heatmap
+        function renderMaps(cityStats) {
+            // Map 1 — Heatmap
             const map = L.map('map').setView([55, 65], 4);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; OpenStreetMap'
-            }).addTo(map);
-
-            const heatPoints = [];
-            cityMap.forEach((stats, city) => {
-                const coords = cityCoords[city];
-                if (coords && stats.qtyBase > 0) {
-                    heatPoints.push([coords[0], coords[1], Math.sqrt(stats.qtyBase) * 0.8]); // intensity
-                }
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+            const heatData = [];
+            cityStats.forEach((stats, city) => {
+                if (cityCoords[city]) heatData.push([...cityCoords[city], Math.log(stats.qty + 1) * 8]);
             });
+            L.heatLayer(heatData, {radius: 40, blur: 30, maxZoom: 12}).addTo(map);
 
-            L.heatLayer(heatPoints, {
-                radius: 35,
-                blur: 25,
-                maxZoom: 10,
-                gradient: {0.4: 'blue', 0.65: 'lime', 1: 'red'}
-            }).addTo(map);
-
-            // Map 2: Circle markers colored by warehouse
+            // Map 2 — Colored markers
             const map2 = L.map('map2').setView([55, 65], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map2);
-
-            cityMap.forEach((stats, city) => {
-                const coords = cityCoords[city];
-                if (coords) {
-                    const isKazan = stats.warehouse.includes('Казань');
-                    const color = isKazan ? '#ef4444' : '#3b82f6';
-                    const radius = Math.min(30, Math.max(6, Math.sqrt(stats.qtyBase) / 12));
-                    
-                    L.circleMarker(coords, {
-                        radius: radius,
-                        fillColor: color,
+            cityStats.forEach((stats, city) => {
+                if (cityCoords[city]) {
+                    L.circleMarker(cityCoords[city], {
+                        radius: Math.min(25, Math.max(7, Math.sqrt(stats.qty)/8)),
+                        fillColor: '#1e40af',
                         color: '#fff',
                         weight: 2,
-                        opacity: 1,
-                        fillOpacity: 0.75
-                    }).bindPopup(`<b>${city}</b><br>Б.ед: ${Math.round(stats.qtyBase)}<br>Сумма: ${stats.sumRUR.toLocaleString('ru-RU')} ₽`).addTo(map2);
+                        fillOpacity: 0.8
+                    }).bindPopup(`<b>${city}</b><br>Б.ед.: ${Math.round(stats.qty)}`).addTo(map2);
                 }
             });
 
-            // Map 3: Larger circles by SUM
+            // Map 3 — Sum circles
             const map3 = L.map('map3').setView([55, 65], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map3);
-
-            cityMap.forEach((stats, city) => {
-                const coords = cityCoords[city];
-                if (coords && stats.sumRUR > 1000) {
-                    const radius = Math.min(45, Math.max(8, stats.sumRUR / 8000));
-                    L.circle(coords, {
-                        radius: radius * 8000, // rough scaling for visibility
+            cityStats.forEach((stats, city) => {
+                if (cityCoords[city] && stats.sum > 5000) {
+                    L.circle(cityCoords[city], {
+                        radius: Math.min(60000, stats.sum / 4),
                         fillColor: '#f59e0b',
                         color: '#d97706',
-                        weight: 1.5,
-                        fillOpacity: 0.6
-                    }).bindPopup(`<b>${city}</b><br>Сумма: ${stats.sumRUR.toLocaleString('ru-RU')} ₽`).addTo(map3);
+                        fillOpacity: 0.55
+                    }).bindPopup(`<b>${city}</b><br>Сумма: ${stats.sum.toLocaleString('ru-RU')} ₽`).addTo(map3);
                 }
             });
         }
-
-        // Load CSV from same directory
-        fetch('1сsales.csv')
-            .then(response => response.text())
-            .then(text => {
-                parseCSV(text);
-            })
-            .catch(err => {
-                console.error("Ошибка загрузки CSV:", err);
-                alert("Не удалось загрузить 1сsales.csv. Убедитесь, что файл находится в той же папке, что и index.html");
-            });
     </script>
 </body>
 </html>
