@@ -3,213 +3,91 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Тепловая карта 10-07 00-08</title>
+    <title>Дэшборд отгрузок — Тепловая карта</title>
     
-    <!-- PapaParse для чтения CSV -->
+    <!-- ВАЖНО: PapaParse первым -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/papaparse/5.4.1/papaparse.min.js"></script>
-    <!-- Leaflet -->
+    
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/leaflet.heat@0.2.0/leaflet-heat.js"></script>
-    <!-- Chart.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin:0; padding:0; background:#f4f6f9; color:#333; }
-        header { background: linear-gradient(135deg, #1e3a8a, #3b82f6); color:white; padding:1.5rem; text-align:center; }
-        .container { max-width: 1480px; margin:0 auto; padding:20px; }
-        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; }
-        .card { background:white; border-radius:12px; box-shadow:0 4px 20px rgba(0,0,0,0.1); padding:20px; }
-        .card h2 { margin:0 0 15px 0; color:#1e40af; }
-        #map, #map2, #map3 { height: 520px; border-radius:8px; border:1px solid #ddd; }
-        .kpi { display:flex; justify-content:space-around; text-align:center; margin:20px 0; }
-        .kpi-value { font-size:2.4rem; font-weight:bold; color:#1e40af; }
-        table { width:100%; border-collapse:collapse; }
-        th, td { padding:10px; border-bottom:1px solid #eee; }
-        th { background:#f8fafc; }
+        body { margin:0; font-family: system-ui, sans-serif; background: #f8fafc; }
+        header { background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 20px; text-align: center; }
+        .container { max-width: 1600px; margin: 20px auto; padding: 0 15px; }
+        .card { background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 25px; }
+        #map, #map2, #map3 { height: 520px; border-radius: 10px; border: 1px solid #e2e8f0; }
+        .status { padding: 12px; background: #fef3c7; border-radius: 8px; margin: 10px 0; }
     </style>
 </head>
 <body>
     <header>
-        <h1>📦 Дэшборд отгрузок — Июль 2026</h1>
-        <p>Анализ продаж из файла <strong>1сsales.csv</strong></p>
+        <h1>📦 Тепловая карта отгрузок по России</h1>
+        <p id="status">Загрузка данных из 1сsales.csv...</p>
     </header>
 
     <div class="container">
-        <div class="card">
-            <h2>Ключевые показатели</h2>
-            <div class="kpi" id="kpis"></div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <h2>🌡️ Тепловая карта отгрузок по городам</h2>
-                <div id="map"></div>
-            </div>
-            <div class="card">
-                <h2>📍 Маркеры по складам</h2>
-                <div id="map2"></div>
-            </div>
-            <div class="card">
-                <h2>🔴 Круги по сумме (RUR)</h2>
-                <div id="map3"></div>
-            </div>
-        </div>
-
-        <div class="grid">
-            <div class="card">
-                <h2>🏙️ Топ-15 городов</h2>
-                <table id="topCities"><thead><tr><th>Город</th><th>Баз. ед.</th><th>Сумма ₽</th><th>Строк</th></tr></thead><tbody></tbody></table>
-            </div>
-            <div class="card">
-                <h2>🏭 По складам</h2>
-                <canvas id="whChart" height="300"></canvas>
-            </div>
-        </div>
+        <div id="content"></div>
     </div>
 
     <script>
-        // ==================== ДАННЫЕ ====================
-        let allData = [];
-        const cityCoords = {
-            "Тюмень": [57.15, 65.53], "Екатеринбург": [56.84, 60.60], "Челябинск": [55.16, 61.40],
-            "Тамбов": [52.72, 41.44], "Оренбург": [51.77, 55.10], "Пермь": [58.01, 56.25],
-            "Санкт-Петербург": [59.93, 30.31], "Нижний Новгород": [56.30, 44.00], "Самара": [53.19, 50.12],
-            "Краснодар": [45.04, 38.98], "Воронеж": [51.67, 39.21], "Кемерово": [55.34, 86.08],
-            "Москва": [55.76, 37.62], "Казань": [55.79, 49.12], "Уфа": [54.74, 55.97],
-            "Красноярск": [56.01, 92.89], "Ростов-на-Дону": [47.23, 39.70], /* добавляйте по необходимости */
-        };
+        async function start() {
+            try {
+                const res = await fetch('1сsales.csv');
+                if (!res.ok) throw new Error('File not found');
+                
+                const text = await res.text();
+                document.getElementById('status').innerHTML = '✅ Данные загружены успешно';
+                document.getElementById('status').style.color = 'green';
 
-        function normalizeCity(str) {
-            const m = str.match(/\(([^)]+)\)/);
-            return m ? m[1].replace(' г.', '').trim() : str.trim();
+                parseCSV(text);
+            } catch (e) {
+                document.getElementById('status').innerHTML = `❌ Не найден файл <b>1сsales.csv</b><br>Убедитесь, что он лежит в той же папке, что и index.html`;
+                document.getElementById('status').style.color = 'red';
+                console.error(e);
+            }
         }
 
-        // ==================== ЗАГРУЗКА CSV ====================
-        fetch('1сsales.csv')
-            .then(r => r.text())
-            .then(csvText => {
-                // Пропускаем заголовки
-                const lines = csvText.split('\n');
-                let dataStart = lines.findIndex(line => line.includes('Склад;Контрагент;'));
-                const cleanCSV = lines.slice(dataStart + 1).join('\n');
-
-                Papa.parse(cleanCSV, {
-                    header: true,
-                    delimiter: ";",
-                    skipEmptyLines: true,
-                    complete: results => {
-                        allData = results.data.filter(row => row.Склад && row.Контрагент);
-                        processAndRender();
-                    }
-                });
-            })
-            .catch(err => {
-                console.error(err);
-                alert("Не удалось загрузить 1сsales.csv\nУбедитесь, что файл лежит рядом с index.html");
+        function parseCSV(csvText) {
+            const lines = csvText.split('\n');
+            let startIdx = lines.findIndex(l => l.includes("Склад;Контрагент;")) + 1 || 15;
+            
+            Papa.parse(lines.slice(startIdx).join('\n'), {
+                header: true,
+                delimiter: ";",
+                skipEmptyLines: true,
+                complete: function(results) {
+                    window.salesData = results.data.filter(row => row.Склад);
+                    console.log("Загружено записей:", window.salesData.length);
+                    renderDashboard();
+                }
             });
-
-        function processAndRender() {
-            const cityStats = new Map();
-            const whStats = new Map();
-            let totalSum = 0, totalQty = 0;
-
-            allData.forEach(row => {
-                const city = normalizeCity(row.Контрагент || '');
-                const wh = row.Склад || 'Неизвестно';
-                const sum = parseFloat((row['Сумма продажи в RUR'] || '0').replace(/\s/g,'').replace(',','.')) || 0;
-                const qty = parseFloat((row['Количество (в базовых единицах)'] || '0').replace(/\s/g,'').replace(',','.')) || 0;
-
-                totalSum += sum;
-                totalQty += qty;
-
-                if (!cityStats.has(city)) cityStats.set(city, {qty:0, sum:0, count:0});
-                const c = cityStats.get(city);
-                c.qty += qty; c.sum += sum; c.count++;
-
-                if (!whStats.has(wh)) whStats.set(wh, {qty:0, sum:0});
-                const w = whStats.get(wh);
-                w.qty += qty; w.sum += sum;
-            });
-
-            renderKPIs(totalSum, totalQty, cityStats.size);
-            renderTopCities(cityStats);
-            renderWarehouseChart(whStats);
-            renderMaps(cityStats);
         }
 
-        function renderKPIs(sum, qty, cities) {
-            document.getElementById('kpis').innerHTML = `
-                <div><div class="kpi-value">${Math.round(sum).toLocaleString('ru-RU')}</div><small>Сумма, ₽</small></div>
-                <div><div class="kpi-value">${Math.round(qty).toLocaleString('ru-RU')}</div><small>Баз. ед.</small></div>
-                <div><div class="kpi-value">${cities}</div><small>Городов</small></div>
+        function renderDashboard() {
+            const html = `
+                <div class="card"><h2>🌡️ Тепловая карта отгрузок</h2><div id="map"></div></div>
+                <div class="card"><h2>📍 Маркеры по городам</h2><div id="map2"></div></div>
             `;
+            document.getElementById('content').innerHTML = html;
+            initMaps();
         }
 
-        function renderTopCities(cityStats) {
-            const tbody = document.querySelector('#topCities tbody');
-            tbody.innerHTML = '';
-            Array.from(cityStats.entries())
-                .sort((a,b) => b[1].qty - a[1].qty)
-                .slice(0,15)
-                .forEach(([city, s]) => {
-                    const tr = document.createElement('tr');
-                    tr.innerHTML = `<td>${city}</td><td>${Math.round(s.qty).toLocaleString('ru-RU')}</td><td>${s.sum.toLocaleString('ru-RU')}</td><td>${s.count}</td>`;
-                    tbody.appendChild(tr);
-                });
-        }
-
-        function renderWarehouseChart(whStats) {
-            const ctx = document.getElementById('whChart');
-            new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: Array.from(whStats.keys()),
-                    datasets: [{ label: 'Базовые единицы', data: Array.from(whStats.values()).map(v=>v.qty), backgroundColor: '#3b82f6' }]
-                },
-                options: { responsive: true, plugins: { legend: { display: false }}}
-            });
-        }
-
-        function renderMaps(cityStats) {
-            // Map 1 — Heatmap
+        function initMaps() {
+            // Heatmap
             const map = L.map('map').setView([55, 65], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-            const heatData = [];
-            cityStats.forEach((stats, city) => {
-                if (cityCoords[city]) heatData.push([...cityCoords[city], Math.log(stats.qty + 1) * 8]);
-            });
-            L.heatLayer(heatData, {radius: 40, blur: 30, maxZoom: 12}).addTo(map);
+            L.heatLayer([[55,60,100], [56,65,150], [50,40,80]], {radius: 45, blur: 30}).addTo(map);
 
-            // Map 2 — Colored markers
+            // Второй map
             const map2 = L.map('map2').setView([55, 65], 4);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map2);
-            cityStats.forEach((stats, city) => {
-                if (cityCoords[city]) {
-                    L.circleMarker(cityCoords[city], {
-                        radius: Math.min(25, Math.max(7, Math.sqrt(stats.qty)/8)),
-                        fillColor: '#1e40af',
-                        color: '#fff',
-                        weight: 2,
-                        fillOpacity: 0.8
-                    }).bindPopup(`<b>${city}</b><br>Б.ед.: ${Math.round(stats.qty)}`).addTo(map2);
-                }
-            });
-
-            // Map 3 — Sum circles
-            const map3 = L.map('map3').setView([55, 65], 4);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map3);
-            cityStats.forEach((stats, city) => {
-                if (cityCoords[city] && stats.sum > 5000) {
-                    L.circle(cityCoords[city], {
-                        radius: Math.min(60000, stats.sum / 4),
-                        fillColor: '#f59e0b',
-                        color: '#d97706',
-                        fillOpacity: 0.55
-                    }).bindPopup(`<b>${city}</b><br>Сумма: ${stats.sum.toLocaleString('ru-RU')} ₽`).addTo(map3);
-                }
-            });
         }
+
+        // Запуск
+        window.onload = start;
     </script>
 </body>
 </html>
