@@ -951,10 +951,7 @@ function parseCSV(csvText) {
         });
     });
 
-    return data;
-}
-        
-            const lines = csvText.split(/\r?\n/);
+    const lines = csvText.split(/\r?\n/);
             // Находим строку с заголовками: ищем по ключевым словам
             let headerLineIndex = -1;
             for (let i = 0; i < lines.length && i < 30; i++) {
@@ -1026,7 +1023,12 @@ function parseCSV(csvText) {
                 });
             }
 
- //           return data;
+
+    
+    return data;
+}
+        
+         //           return data;
    //     }
 
         // ================================================================
