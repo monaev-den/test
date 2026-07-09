@@ -3,1298 +3,1056 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Отгрузки —  08.07 15-09 </title>
+<title>Дашборд отгрузок 09-07. 13-46</title>
 
-<!--
-  ============================================================================
-  ДАШБОРД ОТГРУЗОК СКЛАДА (одностраничный отчёт для руководства)
-  ============================================================================
-  Как это работает:
-    1. Страница при загрузке делает fetch('outbound.csv') — файл должен лежать
-       РЯДОМ с index.html, в той же папке.
-    2. CSV парсится библиотекой PapaParse (разделитель ";", кодировка UTF-8
-       с BOM — именно так выгружает 1С/WMS).
-    3. Каждая строка приводится к удобному объекту: даты конвертируются
-       в JS Date, числа — в Number, извлекается город из адреса доставки.
-    4. Считаются KPI и агрегаты (см. функцию computeAnalytics).
-    5. Chart.js рисует графики, вручную рисуется "конвейер" статусов (SVG/DIV).
-    6. Проблемные заказы (просрочка, зависшие в обработке) выводятся таблицей.
-
-  Ключевая метрика "вовремя / не вовремя":
-    Заказ считается отгруженным ВОВРЕМЯ, если
-        Передача в доставку <= Плановая дата отгрузки
-    Если "Передача в доставку" позже плана — это ПРОСРОЧКА.
-    Если у заказа ещё нет "Передача в доставку", но плановая дата уже прошла —
-    это заказ "под риском" (ещё не просрочен формально, но уже опаздывает).
-  ============================================================================
--->
-
-<!-- Библиотека для чтения / парсинга CSV с учётом кавычек, ; как разделителя и BOM -->
+<!-- ============================================================
+     ВНЕШНИЕ БИБЛИОТЕКИ
+     PapaParse  — парсинг CSV прямо в браузере (умеет работать
+                  с многострочными полями в кавычках, что важно,
+                  т.к. в orders.csv адреса переносятся на новую
+                  строку внутри одной "ячейки").
+     Chart.js   — построение графиков (donut/bar/line).
+     ============================================================ -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<script>
-  // Подстраховка: если cdnjs недоступен, подгружаем PapaParse с jsDelivr.
-  if (typeof Papa === 'undefined') {
-    document.write('<scr' + 'ipt src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></scr' + 'ipt>');
-  }
-</script>
-<!-- Библиотека графиков -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js@latest/dist/chart.umd.min.js"></script>
-<script>
-  // Подстраховка: если jsDelivr недоступен, подгружаем Chart.js с cdnjs.
-  if (typeof Chart === 'undefined') {
-    document.write('<scr' + 'ipt src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.5.0/chart.umd.min.js"></scr' + 'ipt>');
-  }
-</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
 
 <style>
-/* ==========================================================================
-   ТОКЕНЫ ДИЗАЙНА
-   Палитра "диспетчерская склада": тёмно-синяя база + светофорные статусы.
-   Данные — моноширинным шрифтом (табличные цифры), подписи — Inter caps.
-   ========================================================================== */
-:root{
-  --bg:            #0B1220;   /* фон страницы */
-  --panel:         #101B2D;   /* фон карточек */
-  --panel-2:       #16233A;   /* чуть светлее — вложенные блоки, шапки таблиц */
-  --line:          #223252;   /* тонкие разделители */
-  --text:          #F4F7FB;   /* основной текст */
-  --text-dim:      #8CA0B8;   /* приглушённый текст / подписи */
-  --text-faint:    #56698A;   /* совсем тихий текст */
+  /* ============================================================
+     ДИЗАЙН-ТОКЕНЫ
+     Тема — «диспетчерская склада»: тёмная консоль, табличные
+     цифры, статусные цвета несут смысл (не декоративны).
+     ============================================================ */
+  :root{
+    --bg:            #10151b;
+    --panel:         #171e26;
+    --panel-2:       #1d2530;
+    --line:          #2a323d;
+    --line-soft:     #232b35;
+    --text:          #e8ecf1;
+    --text-dim:      #93a0b0;
+    --text-faint:    #5c6b78;
 
-  --ok:            #33D68C;   /* вовремя */
-  --ok-bg:         rgba(51,214,140,0.12);
-  --warn:          #F5B23C;   /* под риском / в обработке */
-  --warn-bg:       rgba(245,178,60,0.12);
-  --bad:           #F3555A;   /* просрочено */
-  --bad-bg:        rgba(243,85,90,0.12);
-  --blue:          #4C8DFF;   /* нейтральные данные / объём */
-  --blue-bg:       rgba(76,141,255,0.12);
-  --violet:        #9C7CF4;   /* доп. акцент для каналов */
+    --ok:            #3dd68c;   /* вовремя */
+    --ok-dim:        #235a45;
+    --late:          #ff6b5e;   /* опоздание */
+    --late-dim:      #5c2e2b;
+    --progress:      #5b9bd5;   /* в работе */
+    --progress-dim:  #2b4360;
+    --cancel:        #6b7585;   /* аннулировано */
+    --priority:      #8fd14f;   /* зелёный приоритет клиента */
+    --priority-dim:  #3a4a24;
+    --amber:         #f0b429;
 
-  --radius:        14px;
-  --font-display:  'Inter', -apple-system, sans-serif;
-  --font-mono:     'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
-}
+    --radius: 3px;
+  }
 
-*{ box-sizing:border-box; margin:0; padding:0; }
+  *{ box-sizing: border-box; }
 
-@font-face{
-  font-family:'Inter';
-  src: local('Inter');
-}
+  html,body{
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter","Segoe UI",Roboto,Arial,sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
 
-body{
-  background:
-    radial-gradient(ellipse 1200px 600px at 15% -10%, rgba(76,141,255,0.08), transparent 60%),
-    radial-gradient(ellipse 900px 500px at 100% 0%, rgba(51,214,140,0.05), transparent 55%),
-    var(--bg);
-  color:var(--text);
-  font-family:var(--font-display);
-  min-height:100vh;
-  padding:28px clamp(16px,3vw,40px) 60px;
-  -webkit-font-smoothing:antialiased;
-}
+  /* Табличные/технические цифры — моноширинный шрифт для чисел KPI,
+     это и есть "фирменный" приём этого дашборда: цифры читаются
+     как показания приборов на складском табло. */
+  .num{
+    font-family: "Roboto Mono","SF Mono",Consolas,monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
 
-/* Числа/данные — везде табличное моно, чтобы колонки выравнивались визуально */
-.num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  a{ color: inherit; }
 
-/* ---------- Шапка ---------- */
-.topbar{
-  display:flex; justify-content:space-between; align-items:flex-end;
-  flex-wrap:wrap; gap:14px;
-  margin-bottom:24px;
-  padding-bottom:18px;
-  border-bottom:1px solid var(--line);
-}
-.brand-eyebrow{
-  font-size:11px; letter-spacing:.18em; text-transform:uppercase;
-  color:var(--text-faint); font-weight:600; margin-bottom:6px;
-}
-.brand-title{
-  font-size:clamp(22px,2.6vw,30px); font-weight:800; letter-spacing:-0.01em;
-}
-.brand-title span{ color: var(--blue); }
-.topbar-meta{
-  text-align:right; font-size:12px; color:var(--text-dim);
-  display:flex; flex-direction:column; gap:4px;
-}
-.topbar-meta b{ color:var(--text); font-family:var(--font-mono); }
-.live-dot{
-  display:inline-block; width:7px; height:7px; border-radius:50%;
-  background:var(--ok); margin-right:6px;
-  box-shadow:0 0 0 3px var(--ok-bg);
-}
+  /* ---------- ШАПКА ---------- */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #131920 0%, #10151b 100%);
+    position: sticky;
+    top:0;
+    z-index: 50;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:12px;
+  }
+  .brand .dot{
+    width:9px; height:9px;
+    background: var(--ok);
+    border-radius: 50%;
+    display:inline-block;
+    box-shadow: 0 0 8px var(--ok);
+    margin-right: 6px;
+  }
+  .brand h1{
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin:0;
+  }
+  .brand .sub{
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  header .meta{
+    text-align:right;
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height:1.5;
+  }
+  header .meta b{ color: var(--text); }
 
-/* ---------- Загрузка / ошибка ---------- */
-#loading, #error{
-  padding:80px 20px; text-align:center; color:var(--text-dim);
-}
-#error{ display:none; color:var(--bad); }
-#error code{ background:var(--panel-2); padding:2px 8px; border-radius:6px; color:var(--text); }
-#dashboard{ display:none; }
+  /* ---------- ОБЩИЙ КОНТЕЙНЕР ---------- */
+  main{
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px 28px 60px;
+  }
 
-/* ==========================================================================
-   HERO: главный показатель — доля отгрузок вовремя
-   ========================================================================== */
-.hero{
-  display:grid;
-  grid-template-columns: 260px 1fr;
-  gap:0;
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  overflow:hidden;
-  margin-bottom:18px;
-}
-.hero-ring-wrap{
-  display:flex; align-items:center; justify-content:center;
-  padding:24px;
-  background:var(--panel-2);
-  border-right:1px solid var(--line);
-  position:relative;
-}
-.hero-ring-wrap svg{ transform:rotate(-90deg); }
-.hero-ring-center{
-  position:absolute; inset:0; display:flex; flex-direction:column;
-  align-items:center; justify-content:center;
-}
-.hero-ring-pct{ font-family:var(--font-mono); font-size:38px; font-weight:700; }
-.hero-ring-label{ font-size:10px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-dim); margin-top:2px; }
+  .section-title{
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    margin: 34px 0 12px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .section-title::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background: var(--line);
+  }
 
-.hero-body{ padding:20px 26px; display:flex; flex-direction:column; justify-content:center; gap:14px; }
-.hero-headline{ font-size:15px; color:var(--text-dim); line-height:1.5; }
-.hero-headline b{ color:var(--text); font-weight:700; }
-.hero-stats-row{ display:flex; gap:28px; flex-wrap:wrap; }
-.hero-stat{ display:flex; flex-direction:column; gap:2px; }
-.hero-stat .v{ font-family:var(--font-mono); font-size:20px; font-weight:700; }
-.hero-stat .l{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); }
-.hero-stat.ok .v{ color:var(--ok); }
-.hero-stat.bad .v{ color:var(--bad); }
-.hero-stat.warn .v{ color:var(--warn); }
+  /* ---------- ПАНЕЛИ / КАРТОЧКИ ---------- */
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
 
-/* ==========================================================================
-   KPI КАРТОЧКИ
-   ========================================================================== */
-.kpi-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
-  gap:12px;
-  margin-bottom:18px;
-}
-.kpi-card{
-  background:var(--panel);
-  border:1px solid var(--line);
-  border-radius:var(--radius);
-  padding:16px 18px;
-  position:relative;
-  overflow:hidden;
-}
-.kpi-card::before{
-  content:''; position:absolute; left:0; top:0; bottom:0; width:3px;
-  background:var(--accent,var(--blue));
-}
-.kpi-label{ font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--text-dim); margin-bottom:8px; }
-.kpi-value{ font-family:var(--font-mono); font-size:26px; font-weight:700; line-height:1; }
-.kpi-sub{ font-size:11.5px; color:var(--text-faint); margin-top:6px; }
+  /* ---------- ЛЕНТА ГЛАВНЫХ KPI ---------- */
+  .kpi-row{
+    display:grid;
+    grid-template-columns: 1.3fr repeat(5, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow:hidden;
+  }
+  .kpi{
+    background: var(--panel);
+    padding: 18px 18px;
+    min-height: 118px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+  }
+  .kpi .label{
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    font-weight:600;
+  }
+  .kpi .value{
+    font-size: 30px;
+    font-weight: 700;
+    line-height:1;
+    margin-top: 10px;
+  }
+  .kpi .foot{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+  .kpi.hero{
+    background: linear-gradient(135deg, #172a22 0%, var(--panel) 65%);
+  }
+  .kpi.hero .value{ font-size: 42px; }
+  .kpi.hero .value .unit{ font-size:20px; color:var(--text-dim); font-weight:600; }
 
-/* ==========================================================================
-   СИГНАТУРНЫЙ ЭЛЕМЕНТ: "конвейер" статусов заказов
-   Горизонтальная лента этапов — от создания заказа до отгрузки,
-   каждый сегмент = доля заказов, окрашен по стадии/статусу.
-   ========================================================================== */
-.pulse-card{
-  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-  padding:20px 22px 18px; margin-bottom:18px;
-}
-.pulse-title{ font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-dim); margin-bottom:14px; display:flex; justify-content:space-between; }
-.pulse-rail{
-  display:flex; height:34px; border-radius:8px; overflow:hidden;
-  border:1px solid var(--line);
-}
-.pulse-seg{
-  display:flex; align-items:center; justify-content:center;
-  font-family:var(--font-mono); font-size:11.5px; font-weight:700;
-  color:#08111f; white-space:nowrap; overflow:hidden;
-  transition:filter .15s;
-  position:relative;
-}
-.pulse-seg:hover{ filter:brightness(1.12); }
-.pulse-legend{ display:flex; gap:18px; flex-wrap:wrap; margin-top:12px; }
-.pulse-legend-item{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-dim); }
-.pulse-legend-dot{ width:9px; height:9px; border-radius:3px; flex-shrink:0; }
+  /* Индикатор ворот отгрузки — фирменный элемент: горизонтальная
+     шкала-«шлагбаум» с делением на факт/цель, имитирует табло
+     контроля отгрузки на воротах склада. */
+  .gate{
+    margin-top: 10px;
+    height: 8px;
+    width: 100%;
+    background: var(--line-soft);
+    border-radius: 2px;
+    position: relative;
+    overflow:hidden;
+  }
+  .gate .fill{
+    height:100%;
+    background: linear-gradient(90deg, var(--ok), #58e0a3);
+    border-radius: 2px;
+  }
+  .gate .target-mark{
+    position:absolute;
+    top:-3px;
+    bottom:-3px;
+    width:2px;
+    background: var(--amber);
+  }
 
-/* ==========================================================================
-   СЕТКА ГРАФИКОВ
-   ========================================================================== */
-.charts-grid{
-  display:grid;
-  grid-template-columns: 1.4fr 1fr;
-  gap:14px;
-  margin-bottom:14px;
-}
-.charts-grid-3{
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:14px;
-  margin-bottom:14px;
-}
-.chart-card{
-  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-  padding:18px 20px;
-  display:flex; flex-direction:column;
-}
-.chart-card h3{
-  font-size:13px; font-weight:700; margin-bottom:2px;
-}
-.chart-card .chart-desc{ font-size:11.5px; color:var(--text-faint); margin-bottom:12px; }
-.chart-card .chart-canvas-wrap{ position:relative; flex:1; min-height:230px; }
+  .val-ok{ color: var(--ok); }
+  .val-late{ color: var(--late); }
+  .val-progress{ color: var(--progress); }
+  .val-cancel{ color: var(--cancel); }
+  .val-priority{ color: var(--priority); }
+  .val-amber{ color: var(--amber); }
 
-/* ==========================================================================
-   ТАБЛИЦА ПРОБЛЕМНЫХ ЗАКАЗОВ
-   ========================================================================== */
-.table-card{
-  background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
-  padding:18px 20px 8px; margin-bottom:18px;
-}
-.table-card-head{ display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px; }
-.table-card-head h3{ font-size:13px; font-weight:700; }
-.table-card-head .chart-desc{ font-size:11.5px; color:var(--text-faint); }
-.badge{
-  font-size:10.5px; font-family:var(--font-mono); font-weight:700;
-  padding:3px 9px; border-radius:20px;
-}
-.badge-bad{ background:var(--bad-bg); color:var(--bad); }
+  /* ---------- СЕТКА ГРАФИКОВ ---------- */
+  .grid-2{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .grid-3{
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .chart-card{
+    padding: 16px 18px 12px;
+  }
+  .chart-card h3{
+    font-size: 13px;
+    font-weight:700;
+    margin: 0 0 3px;
+  }
+  .chart-card .desc{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .chart-wrap{
+    position: relative;
+    height: 260px;
+  }
+  .chart-wrap.tall{ height: 320px; }
+  .chart-wrap.short{ height: 190px; }
 
-.table-scroll{ overflow-x:auto; max-height:420px; overflow-y:auto; }
-table{ width:100%; border-collapse:collapse; font-size:12.5px; }
-thead th{
-  position:sticky; top:0; background:var(--panel-2); z-index:1;
-  text-align:left; padding:9px 10px; font-size:10.5px; letter-spacing:.06em;
-  text-transform:uppercase; color:var(--text-dim); border-bottom:1px solid var(--line);
-  white-space:nowrap;
-}
+  /* ---------- БЛОК ПРИОРИТЕТНЫХ КЛИЕНТОВ ---------- */
+  .priority-band{
+    border: 1px solid var(--priority-dim);
+    background: linear-gradient(180deg, #182417 0%, var(--panel) 40%);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .priority-band .head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom: 14px;
+  }
+  .priority-band .head .tag{
+    background: var(--priority);
+    color: #0f1a08;
+    font-size: 10.5px;
+    font-weight:800;
+    letter-spacing:0.06em;
+    padding: 3px 8px;
+    border-radius: 2px;
+    text-transform: uppercase;
+  }
+  .priority-band .head h3{
+    margin:0;
+    font-size: 14px;
+  }
+  .priority-band .head .n{
+    margin-left:auto;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
 
-/* Панель фильтров над таблицей: поиск + выбор статуса + сброс */
-.table-filters{
-  display:flex; gap:10px; flex-wrap:wrap; align-items:center;
-  margin-bottom:12px;
-}
-.filter-input, .filter-select{
-  background:var(--panel-2);
-  border:1px solid var(--line);
-  color:var(--text);
-  font-family:var(--font-display);
-  font-size:12.5px;
-  border-radius:8px;
-  padding:8px 12px;
-  outline:none;
-  transition:border-color .15s;
-}
-.filter-input{ flex:1; min-width:200px; }
-.filter-input::placeholder{ color:var(--text-faint); }
-.filter-input:focus, .filter-select:focus{ border-color:var(--blue); }
-.filter-select{ cursor:pointer; }
-.filter-reset{
-  background:transparent;
-  border:1px solid var(--line);
-  color:var(--text-dim);
-  font-family:var(--font-display);
-  font-size:12px;
-  border-radius:8px;
-  padding:8px 14px;
-  cursor:pointer;
-  transition:all .15s;
-}
-.filter-reset:hover{ border-color:var(--bad); color:var(--bad); }
+  /* ---------- ТАБЛИЦА ПРОБЛЕМНЫХ ЗАКАЗОВ ---------- */
+  .table-wrap{
+    overflow-x:auto;
+  }
+  table{
+    width:100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  thead th{
+    text-align:left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    font-weight:700;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    position: sticky;
+    top:0;
+    background: var(--panel);
+  }
+  tbody td{
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line-soft);
+    white-space: nowrap;
+    color: var(--text);
+  }
+  tbody tr:hover{ background: var(--panel-2); }
+  .pill{
+    display:inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10.5px;
+    font-weight:700;
+    letter-spacing:0.02em;
+  }
+  .pill-late{ background: var(--late-dim); color: var(--late); }
+  .pill-priority{ background: var(--priority-dim); color: var(--priority); border:1px solid var(--priority); }
 
-/* Заголовки таблицы кликабельны — курсор и hover сигнализируют об этом.
-   Стрелка сортировки (▲/▼) добавляется через ::after на активной колонке. */
-thead th[data-sort-key]{
-  cursor:pointer;
-  user-select:none;
-  transition:color .15s;
-}
-thead th[data-sort-key]:hover{ color:var(--text); }
-thead th[data-sort-key].sort-active{ color:var(--blue); }
-thead th[data-sort-key]::after{
-  content:'';
-  display:inline-block;
-  margin-left:5px;
-  font-size:9px;
-  opacity:.5;
-}
-thead th[data-sort-key].sort-asc::after{ content:'▲'; opacity:1; }
-thead th[data-sort-key].sort-desc::after{ content:'▼'; opacity:1; }
+  .scroll-table{
+    max-height: 420px;
+    overflow-y: auto;
+  }
 
-/* Строка "ничего не найдено" при пустом результате фильтрации */
-.table-empty-row td{
-  text-align:center; color:var(--text-faint); padding:28px 10px !important;
-  font-style:italic;
-}
+  footer{
+    text-align:center;
+    font-size: 11px;
+    color: var(--text-faint);
+    padding: 30px 0 10px;
+  }
 
-tbody td{ padding:8px 10px; border-bottom:1px solid var(--line); white-space:nowrap; color:var(--text); }
-tbody tr:hover{ background:var(--panel-2); }
-td.num, th.num{ font-family:var(--font-mono); text-align:right; }
-.pill{ font-family:var(--font-mono); font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; display:inline-block; }
-.pill-bad{ background:var(--bad-bg); color:var(--bad); }
-.pill-warn{ background:var(--warn-bg); color:var(--warn); }
+  /* ---------- СОСТОЯНИЯ ЗАГРУЗКИ / ОШИБКИ ---------- */
+  #loadState{
+    position:fixed; inset:0;
+    background: var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column;
+    gap:14px;
+    z-index: 999;
+    font-size:13px;
+    color: var(--text-dim);
+  }
+  #loadState .spinner{
+    width:26px;height:26px;
+    border-radius:50%;
+    border:2px solid var(--line);
+    border-top-color: var(--ok);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  #loadState.error .spinner{ display:none; }
+  #loadState.error{ color: var(--late); }
+  #loadState pre{
+    max-width: 640px;
+    white-space: pre-wrap;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    text-align:left;
+    background: var(--panel);
+    border:1px solid var(--line);
+    padding: 12px 14px;
+    border-radius: 4px;
+  }
 
-footer{
-  text-align:center; color:var(--text-faint); font-size:11px; margin-top:24px;
-}
+  .hidden{ display:none !important; }
 
-/* ---------- Адаптивность ---------- */
-@media (max-width:980px){
-  .charts-grid, .charts-grid-3{ grid-template-columns:1fr; }
-  .hero{ grid-template-columns:1fr; }
-  .hero-ring-wrap{ border-right:none; border-bottom:1px solid var(--line); }
-}
+  @media (max-width: 1100px){
+    .kpi-row{ grid-template-columns: repeat(2,1fr); grid-auto-rows: auto; }
+    .grid-2, .grid-3{ grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
 
-  <!-- ==================== ШАПКА ==================== -->
-  <div class="topbar">
-    <div>
-      <div class="brand-eyebrow">3PL Склад</div>
-      <div class="brand-title">Панель <span>отгрузок</span></div>
+<!-- Экран загрузки / ошибки, показывается пока orders.csv не прочитан -->
+<div id="loadState">
+  <div class="spinner"></div>
+  <div id="loadStateText">Загрузка orders.csv…</div>
+</div>
+
+<div id="app" class="hidden">
+
+  <header>
+    <div class="brand">
+      <div>
+        <h1><span class="dot"></span>Дашборд отгрузок склада</h1>
+        <div class="sub">Контроль своевременности отгрузки заказов</div>
+      </div>
     </div>
-    <div class="topbar-meta">
-      <div><span class="live-dot"></span>Источник: <b>outbound.csv</b></div>
-      <div>Загружено: <b id="meta-loaded-at">—</b></div>
-      <div>Заказов в выборке: <b id="meta-rows">—</b></div>
+    <div class="meta">
+      Период данных: <b id="metaPeriod">—</b><br>
+      Заказов в выборке: <b id="metaCount">—</b> · Обновлено: <b id="metaGenerated">—</b>
     </div>
-  </div>
+  </header>
 
-  <!-- ==================== СОСТОЯНИЯ ЗАГРУЗКИ ==================== -->
-  <div id="loading">Загружаю outbound.csv и считаю показатели…</div>
-  <div id="error">
-    Не удалось загрузить <code>outbound.csv</code>.<br><br>
-    Убедитесь, что файл <code>outbound.csv</code> лежит в той же папке, что и <code>index.html</code>,
-    и что страница открыта через локальный веб-сервер (например <code>python3 -m http.server</code>),
-    а не напрямую как <code>file://</code> — иначе браузер блокирует чтение файлов по соображениям безопасности.
-  </div>
+  <main>
 
-  <!-- ==================== ДАШБОРД (наполняется JS) ==================== -->
-  <div id="dashboard">
+    <!-- ================= ГЛАВНЫЕ KPI ================= -->
+    <div class="kpi-row">
 
-    <!-- ---------- HERO: доля отгрузок вовремя ---------- -->
-    <div class="hero">
-      <div class="hero-ring-wrap">
-        <svg width="180" height="180" viewBox="0 0 180 180">
-          <circle cx="90" cy="90" r="78" fill="none" stroke="#1c2b45" stroke-width="16"/>
-          <circle id="hero-ring-fg" cx="90" cy="90" r="78" fill="none" stroke="#33D68C"
-                  stroke-width="16" stroke-linecap="round"
-                  stroke-dasharray="490" stroke-dashoffset="490"/>
-        </svg>
-        <div class="hero-ring-center">
-          <div class="hero-ring-pct num" id="hero-pct">—%</div>
-          <div class="hero-ring-label">вовремя</div>
+      <div class="kpi hero">
+        <div class="label">Отгружено вовремя (допуск 30 мин)</div>
+        <div class="value"><span id="kpiOnTimePct" class="num">—</span><span class="unit">%</span></div>
+        <div class="gate">
+          <div id="kpiOnTimeGate" class="fill" style="width:0%"></div>
+        </div>
+        <div class="foot"><span id="kpiOnTimeCount" class="num">—</span> из <span id="kpiShippedTotal" class="num">—</span> отгруженных заказов</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Отгружено с опозданием</div>
+        <div class="value val-late num" id="kpiLateCount">—</div>
+        <div class="foot"><span id="kpiLatePct" class="num">—</span>% от отгруженных</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Всего заказов</div>
+        <div class="value num" id="kpiTotal">—</div>
+        <div class="foot">за период выборки</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">В работе (не отгружено)</div>
+        <div class="value val-progress num" id="kpiProgress">—</div>
+        <div class="foot">обработка / готов к отгрузке</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Аннулировано</div>
+        <div class="value val-cancel num" id="kpiCancelled">—</div>
+        <div class="foot">до/после сборки</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Приоритетные (зелёные)</div>
+        <div class="value val-priority num" id="kpiPriorityTotal">—</div>
+        <div class="foot"><span id="kpiPriorityOnTimePct" class="num">—</span>% из них — вовремя</div>
+      </div>
+
+    </div>
+
+    <!-- ================= ОСНОВНЫЕ ГРАФИКИ ================= -->
+    <div class="section-title">Своевременность отгрузки</div>
+    <div class="grid-3">
+      <div class="panel chart-card">
+        <h3>Статус отгрузки, доля заказов</h3>
+        <div class="desc">Вовремя / с опозданием / в работе / аннулировано</div>
+        <div class="chart-wrap"><canvas id="chartStatusDonut"></canvas></div>
+      </div>
+      <div class="panel chart-card" style="grid-column: span 2;">
+        <h3>Динамика по дням: план vs факт отгрузки</h3>
+        <div class="desc">Количество заказов, отгруженных вовремя и с опозданием, по дню плановой отгрузки</div>
+        <div class="chart-wrap"><canvas id="chartTimeline"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Структура заказов</div>
+    <div class="grid-3">
+      <div class="panel chart-card">
+        <h3>По типу доставки</h3>
+        <div class="desc">Кол-во заказов по перевозчику</div>
+        <div class="chart-wrap short"><canvas id="chartCarrier"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>По региону</h3>
+        <div class="desc">Москва / МО / Регионы — доля вовремя</div>
+        <div class="chart-wrap short"><canvas id="chartRegion"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>Текущий статус склада</h3>
+        <div class="desc">Разбивка по стадии обработки</div>
+        <div class="chart-wrap short"><canvas id="chartWarehouseStatus"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Опоздания — детализация</div>
+    <div class="grid-2">
+      <div class="panel chart-card">
+        <h3>Распределение опозданий по величине</h3>
+        <div class="desc">На сколько часов факт отгрузки превысил план (сверх допуска 30 мин)</div>
+        <div class="chart-wrap"><canvas id="chartLateBuckets"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>Топ-10 контрагентов по опозданиям</h3>
+        <div class="desc">Клиенты с наибольшим числом просроченных отгрузок</div>
+        <div class="chart-wrap"><canvas id="chartTopLateClients"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ================= ПРИОРИТЕТНЫЕ КЛИЕНТЫ ================= -->
+    <div class="section-title">Особый контроль</div>
+    <div class="priority-band">
+      <div class="head">
+        <span class="tag">Зелёный приоритет</span>
+        <h3>Отгрузки приоритетных клиентов</h3>
+        <span class="n"><span id="prioTotalN" class="num">—</span> заказов в выборке</span>
+      </div>
+      <div class="grid-3" style="margin-bottom:16px;">
+        <div class="panel" style="padding:14px 16px;">
+          <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Вовремя</div>
+          <div class="value num val-ok" style="font-size:26px;font-weight:700;margin-top:6px;" id="prioOnTime">—</div>
+        </div>
+        <div class="panel" style="padding:14px 16px;">
+          <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">С опозданием</div>
+          <div class="value num val-late" style="font-size:26px;font-weight:700;margin-top:6px;" id="prioLate">—</div>
+        </div>
+        <div class="panel" style="padding:14px 16px;">
+          <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">В работе</div>
+          <div class="value num val-progress" style="font-size:26px;font-weight:700;margin-top:6px;" id="prioProgress">—</div>
         </div>
       </div>
-      <div class="hero-body">
-        <div class="hero-headline">
-          Из заказов с фактической <b>передачей в доставку</b>, доля отгруженных
-          <b>не позднее плановой даты отгрузки</b> — ключевой KPI склада.
-          Ниже — разбивка по статусам и источник просрочек.
-        </div>
-        <div class="hero-stats-row">
-          <div class="hero-stat ok">
-            <div class="v num" id="stat-ontime">—</div>
-            <div class="l">Вовремя</div>
-          </div>
-          <div class="hero-stat bad">
-            <div class="v num" id="stat-late">—</div>
-            <div class="l">Просрочено</div>
-          </div>
-          <div class="hero-stat warn">
-            <div class="v num" id="stat-atrisk">—</div>
-            <div class="l">Под риском (план прошёл, ещё не отгружен)</div>
-          </div>
-          <div class="hero-stat">
-            <div class="v num" id="stat-avg-delay">—</div>
-            <div class="l">Средняя просрочка, ч</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ---------- KPI КАРТОЧКИ ---------- -->
-    <div class="kpi-grid" id="kpi-grid"><!-- заполняется JS --></div>
-
-    <!-- ---------- СИГНАТУРНЫЙ ЭЛЕМЕНТ: конвейер статусов ---------- -->
-    <div class="pulse-card">
-      <div class="pulse-title">
-        <span>Конвейер заказов · распределение по складскому статусу</span>
-        <span id="pulse-total" class="num">— заказов</span>
-      </div>
-      <div class="pulse-rail" id="pulse-rail"><!-- сегменты заполняются JS --></div>
-      <div class="pulse-legend" id="pulse-legend"><!-- заполняется JS --></div>
-    </div>
-
-    <!-- ---------- ГРАФИКИ: динамика + статус ---------- -->
-    <div class="charts-grid">
-      <div class="chart-card">
-        <h3>Динамика отгрузок по дням</h3>
-        <div class="chart-desc">Объём переданных в доставку заказов и доля вовремя / с просрочкой</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-timeline"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <h3>Складской статус</h3>
-        <div class="chart-desc">Текущее распределение заказов выборки</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-status"></canvas></div>
-      </div>
-    </div>
-
-    <!-- ---------- ГРАФИКИ: география, сборщики, каналы ---------- -->
-    <div class="charts-grid-3">
-      <div class="chart-card">
-        <h3>Топ городов назначения</h3>
-        <div class="chart-desc">По числу заказов</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-cities"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <h3>Загрузка сборщиков</h3>
-        <div class="chart-desc">Кол-во собранных заказов и % вовремя</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-pickers"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <h3>Каналы продаж / ТК</h3>
-        <div class="chart-desc">Доля заказов по транспортной компании</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-channels"></canvas></div>
-      </div>
-    </div>
-
-    <!-- ---------- ГРАФИК: время выполнения этапов ---------- -->
-    <div class="charts-grid">
-      <div class="chart-card">
-        <h3>Среднее время этапов обработки заказа</h3>
-        <div class="chart-desc">От отправки в работу до сборки — где склад теряет время (часы)</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-stages"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <h3>Структура заказов по объёму</h3>
-        <div class="chart-desc">Распределение по количеству штук в заказе</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-sizes"></canvas></div>
-      </div>
-    </div>
-
-    <!-- ---------- ТАБЛИЦА ПРОБЛЕМНЫХ ЗАКАЗОВ ---------- -->
-    <div class="table-card">
-      <div class="table-card-head">
-        <div>
-          <h3>Проблемные заказы</h3>
-          <div class="chart-desc">Просроченные и зависшие в обработке — кликните на заголовок колонки для сортировки</div>
-        </div>
-        <span class="badge badge-bad" id="problem-count-badge">0 заказов</span>
-      </div>
-
-      <!-- Панель фильтров: текстовый поиск по заказу/контрагенту/городу/сборщику
-           + выпадающий список по статусу (Просрочен / Под риском / Все) -->
-      <div class="table-filters">
-        <input type="text" id="problem-search" class="filter-input"
-               placeholder="Поиск: № заказа, контрагент, город, сборщик…">
-        <select id="problem-status-filter" class="filter-select">
-          <option value="all">Все статусы</option>
-          <option value="late">Только просроченные</option>
-          <option value="at-risk">Только под риском</option>
-        </select>
-        <button type="button" id="problem-filters-reset" class="filter-reset">Сбросить</button>
-      </div>
-
-      <div class="table-scroll">
+      <div class="table-wrap scroll-table">
         <table>
           <thead>
             <tr>
-              <!-- data-sort-key соответствует ключу в объекте заказа (JS),
-                   data-sort-type определяет, как сравнивать значения при сортировке -->
-              <th data-sort-key="orderNo"    data-sort-type="text">№ заказа</th>
-              <th data-sort-key="contragent" data-sort-type="text">Контрагент</th>
-              <th data-sort-key="city"       data-sort-type="text">Город</th>
-              <th data-sort-key="onTimeStatus" data-sort-type="text">Статус</th>
-              <th data-sort-key="planShip"   data-sort-type="date">Плановая отгрузка</th>
-              <th data-sort-key="handedOver" data-sort-type="date">Передача в доставку</th>
-              <th data-sort-key="riskHours"  data-sort-type="number" class="num">Просрочка, ч</th>
-              <th data-sort-key="picker"     data-sort-type="text">Сборщик</th>
-              <th data-sort-key="qtyPieces"  data-sort-type="number" class="num">Шт.</th>
+              <th>Номер заказа</th>
+              <th>Контрагент</th>
+              <th>Регион</th>
+              <th>Плановая дата</th>
+              <th>Фактическая дата</th>
+              <th>Статус</th>
             </tr>
           </thead>
-          <tbody id="problem-table-body"><!-- заполняется JS --></tbody>
+          <tbody id="prioTableBody"></tbody>
         </table>
       </div>
     </div>
 
-    <footer>Панель формируется автоматически из outbound.csv при каждом открытии страницы · Данные не сохраняются и не отправляются никуда за пределы браузера</footer>
-  </div>
+    <!-- ================= ТАБЛИЦА ПРОБЛЕМНЫХ ЗАКАЗОВ ================= -->
+    <div class="section-title">Проблемные заказы (опоздание) — все</div>
+    <div class="panel" style="padding:16px 18px;">
+      <div class="table-wrap scroll-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Номер заказа</th>
+              <th>Контрагент</th>
+              <th>Регион</th>
+              <th>Тип доставки</th>
+              <th>Плановая дата</th>
+              <th>Фактическая дата</th>
+              <th>Опоздание</th>
+              <th>Приоритет</th>
+            </tr>
+          </thead>
+          <tbody id="lateTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer>
+      Данные читаются локально из orders.csv при открытии страницы. Колонка «Опоздание отгрузки» из файла не используется — статус своевременности рассчитывается напрямую по плановой и фактической датам отгрузки (допуск 30 минут).
+    </footer>
+
+  </main>
+</div>
 
 <script>
-/* ============================================================================
-   БЛОК 1. ЗАГРУЗКА И ПАРСИНГ CSV
-   ============================================================================ */
+/* =====================================================================
+   ЛОГИКА ДАШБОРДА ОТГРУЗОК СКЛАДА
+   ---------------------------------------------------------------------
+   Общий план:
+   1. Загружаем orders.csv (лежит рядом с index.html) через fetch.
+   2. Парсим его PapaParse'ом (разделитель ";", UTF-8 с BOM).
+   3. Очищаем значения от HTML-тегов <font color=...> — они в CSV
+      используются просто как способ подсветить статус цветом в
+      исходной системе, для нас это чистый текст.
+   4. Классифицируем каждый заказ:
+        - ОТГРУЖЕН + факт <= план + 30 мин  → "вовремя"
+        - ОТГРУЖЕН + факт >  план + 30 мин  → "опоздание"
+        - статус АННУЛИРОВАН (до/после сборки) → "аннулирован"
+        - всё остальное (В ОБРАБОТКЕ, ГОТОВ К ОТГРУЗКЕ, СОЗДАН,
+          либо ОТГРУЖЕН без фактической даты) → "в работе"
+      Важно: колонку "Опоздание отгрузки" из файла НЕ используем —
+      по условию задачи она работает некорректно.
+   5. Считаем KPI и строим графики (Chart.js) + таблицы.
+   ===================================================================== */
 
-// Названия колонок ровно как в исходном файле — вынесены в константы,
-// чтобы не гонять "магические строки" по всему коду и легко поддерживать
-// формат, если 1С/WMS изменит выгрузку.
+// ---------- НАСТРОЙКИ ----------
+const CSV_PATH = 'orders.csv';       // файл должен лежать рядом с index.html
+const TOLERANCE_MS = 30 * 60 * 1000; // допуск 30 минут в миллисекундах
+
+// Индексы колонок в CSV (0-based), см. заголовок файла orders.csv
 const COL = {
-  ID:            'ID документа',
-  ORDER_NO:      'Номер заказа ИМ',
-  CREATED_AT:    'Дата создания заказа',
-  OWNER:         'Владелец запаса',
-  CONTRAGENT:    'Контрагент',
-  CHANNEL:       'Канал продаж',
-  ADDRESS:       'Адрес доставки',
-  PLAN_SHIP:     'Плановая дата отгрузки',   // план: когда должны передать в доставку
-  SENT_TO_WORK:  'Отправка в работу',
-  PICK_START:    'Начало сборки',
-  PICK_END:      'Окончание сборки',
-  PICKER:        'Сборщик',
-  HANDED_OVER:   'Передача в доставку',      // факт: когда реально передали в доставку
-  QTY_PIECES:    'Количество штук',
-  QTY_LINES:     'Количество позиций',
-  STATUS:        'Складской статус',
+  deliveryType:   0,  // Тип доставки
+  orderNumber:    1,  // Номер заказа
+  saleNumber:     2,  // Номер реализации
+  warehouseId:    3,  // ID заказа склада
+  orderDate:      4,  // Дата заказа
+  region:         7,  // Регион
+  address:        8,  // Адрес получателя
+  qty:            9,  // Кол-во штук товара
+  labelsQty:     10,  // Кол-во этикеток
+  warehouseName: 11,  // Склад обработки
+  warehouseStatus:13, // Статус склада
+  contragent:    14,  // Контрагент
+  priorityColor: 15,  // Цвет приоритета
+  cancelDate:    17,  // Дата аннулирования
+  planDate:      18,  // Плановая дата отгрузки
+  factDate:      19,  // Фактическая дата отгрузки
+  // "Опоздание отгрузки" (индекс 20) сознательно не используется —
+  // по условию задачи колонка работает некорректно.
 };
 
-/**
- * Парсит дату в формате "ДД.ММ.ГГГГ ЧЧ:ММ:СС" (стандартный формат 1С-выгрузок)
- * в объект JS Date. Возвращает null для пустых/некорректных значений.
- */
-function parseRuDate(str) {
-  if (!str || typeof str !== 'string') return null;
-  const s = str.trim();
+// ---------- УТИЛИТЫ ----------
+
+// Убирает HTML-теги вида <font color=green><b>ОТГРУЖЕН</b></font> -> "ОТГРУЖЕН"
+function stripHtml(s){
+  if (!s) return '';
+  return s.replace(/<[^>]*>/g, '').trim();
+}
+
+// Парсит дату в формате "ДД.ММ.ГГГГ ЧЧ:ММ:СС" -> объект Date
+// (JS Date не понимает такой формат нативно, поэтому парсим вручную)
+function parseRuDate(s){
   if (!s) return null;
-  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}):(\d{2}))?$/);
+  s = s.trim();
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
   if (!m) return null;
-  const [, dd, mm, yyyy, hh = '00', mi = '00', ss = '00'] = m;
-  return new Date(+yyyy, +mm - 1, +dd, +hh, +mi, +ss);
+  const [, dd, mm, yyyy, HH, MM, SS] = m;
+  return new Date(+yyyy, +mm - 1, +dd, +HH, +MM, +SS);
 }
 
-/** Парсит числовое поле, где дробный разделитель может быть запятой. */
-function parseRuNumber(str) {
-  if (str === undefined || str === null) return null;
-  const s = String(str).trim().replace(',', '.');
-  if (!s) return null;
-  const n = Number(s);
-  return Number.isFinite(n) ? n : null;
-}
-
-/**
- * Извлекает название города из полного адреса доставки.
- * Адреса в выгрузке имеют вид:
- *   "241035, Брянская обл, Брянск г, 3 Интернационала ул, дом № 27"
- *   "Москва г, Огородный проезд, дом № 16/1, строение 4, оф.1205"
- * Стратегия: ищем токен, оканчивающийся на " г" (город) среди частей,
- * разделённых запятой.
- */
-function extractCity(address) {
-  if (!address) return 'Не указан';
-  const parts = address.split(',').map(p => p.trim());
-  for (const part of parts) {
-    // "Брянск г" / "Москва г" -> город указан суффиксом "г" после пробела
-    const m = part.match(/^([А-ЯЁа-яё\-\s]+?)\s+г\.?$/);
-    if (m) return m[1].trim();
-  }
-  return 'Не указан';
-}
-
-/** Разница между двумя датами в часах (может быть отрицательной, если a позже b). */
-function hoursBetween(a, b) {
-  return (b.getTime() - a.getTime()) / 3600000;
-}
-
-/**
- * Допуск ("grace period") для KPI "вовремя".
- * Если "Передача в доставку" превышает "Плановую дату отгрузки" менее
- * чем на это значение (в часах) — заказ всё равно считается отгруженным
- * ВОВРЕМЯ, а не просрочкой. Бизнес-правило: опоздание до 30 минут
- * не считается проблемой склада.
- * Чтобы изменить порог — поменяйте только это значение.
- */
-const ON_TIME_GRACE_HOURS = 30 / 60; // 30 минут = 0.5 часа
-
-function fmtDate(d) {
+function fmtDate(d){
   if (!d) return '—';
-  const p = n => String(n).padStart(2, '0');
-  return `${p(d.getDate())}.${p(d.getMonth()+1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function fmtInt(n) {
-  return new Intl.NumberFormat('ru-RU').format(Math.round(n));
+function fmtDuration(ms){
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} мин`;
+  return `${h} ч ${m} мин`;
 }
 
-/* ============================================================================
-   БЛОК 2. ЗАГРУЗКА ФАЙЛА И ПОСТРОЕНИЕ МОДЕЛИ ДАННЫХ
-   ============================================================================ */
+function isPriority(rawValue){
+  // Значение из колонки "Цвет приоритета", после очистки от HTML.
+  // Ожидаем "ЗЕЛЁНЫЙ" (с Ё) — сравниваем без учёта регистра
+  // и допускаем вариант написания через Е на всякий случай.
+  const v = stripHtml(rawValue).toUpperCase();
+  return v === 'ЗЕЛЁНЫЙ' || v === 'ЗЕЛЕНЫЙ';
+}
 
-async function loadData() {
-  // fetch того же каталога, где лежит index.html — файл должен называться
-  // ровно outbound.csv и находиться рядом.
-  const response = await fetch('outbound.csv');
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status} при загрузке outbound.csv`);
+// Приводит "Статус склада" к одному из канонических значений
+function normalizeStatus(rawValue){
+  const v = stripHtml(rawValue).toUpperCase();
+  if (v.includes('ОТГРУЖЕН')) return 'ОТГРУЖЕН';
+  if (v.includes('АННУЛИРОВАН ДО СБОРКИ')) return 'АННУЛИРОВАН_ДО';
+  if (v.includes('АННУЛИРОВАН ПОСЛЕ СБОРКИ')) return 'АННУЛИРОВАН_ПОСЛЕ';
+  if (v.includes('ГОТОВ К ОТГРУЗКЕ')) return 'ГОТОВ_К_ОТГРУЗКЕ';
+  if (v.includes('В ОБРАБОТКЕ')) return 'В_ОБРАБОТКЕ';
+  if (v.includes('СОЗДАН')) return 'СОЗДАН';
+  return v || 'НЕИЗВЕСТНО';
+}
+
+// ---------- ОСНОВНАЯ КЛАССИФИКАЦИЯ ЗАКАЗА ----------
+// Возвращает один из статусов:
+//   'on_time'    — отгружен вовремя (с учётом допуска 30 мин)
+//   'late'       — отгружен с опозданием
+//   'in_progress'— ещё не отгружен, но не аннулирован
+//   'cancelled'  — аннулирован (до или после сборки)
+//   'no_plan'    — отгружен, но нет плановой даты (не с чем сравнивать)
+function classifyOrder(order){
+  const status = normalizeStatus(order[COL.warehouseStatus]);
+
+  if (status === 'АННУЛИРОВАН_ДО' || status === 'АННУЛИРОВАН_ПОСЛЕ'){
+    return 'cancelled';
   }
-  // Читаем как ArrayBuffer, чтобы корректно снять BOM и учесть кодировку,
-  // затем декодируем как UTF-8 (стандартная кодировка выгрузок 1С с BOM).
-  const buf = await response.arrayBuffer();
-  const text = new TextDecoder('utf-8').decode(buf);
+
+  const factDate = parseRuDate(order[COL.factDate]);
+
+  // Если статус ОТГРУЖЕН и есть фактическая дата — сравниваем с планом
+  if (status === 'ОТГРУЖЕН' && factDate){
+    const planDate = parseRuDate(order[COL.planDate]);
+    if (!planDate) return 'no_plan';
+    const diff = factDate.getTime() - planDate.getTime();
+    return diff <= TOLERANCE_MS ? 'on_time' : 'late';
+  }
+
+  // Во всех остальных случаях (В ОБРАБОТКЕ, ГОТОВ К ОТГРУЗКЕ, СОЗДАН,
+  // либо "ОТГРУЖЕН" без фактической даты — на всякий случай) считаем,
+  // что заказ ещё в работе.
+  return 'in_progress';
+}
+
+// ---------- ЗАГРУЗКА И ПАРСИНГ CSV ----------
+
+async function loadOrders(){
+  const resp = await fetch(CSV_PATH);
+  if (!resp.ok){
+    throw new Error(`Не удалось загрузить ${CSV_PATH} (HTTP ${resp.status}). Убедитесь, что файл orders.csv лежит в той же папке, что и index.html, и что страница открыта через веб-сервер (не напрямую как file://).`);
+  }
+  const text = await resp.text();
 
   const parsed = Papa.parse(text, {
-    header: true,        // первая строка — названия колонок
-    delimiter: ';',       // в выгрузке разделитель — точка с запятой
+    delimiter: ';',
+    header: false,       // берём заголовок вручную, чтобы использовать константы COL по индексам
     skipEmptyLines: true,
-    transformHeader: h => h.trim(),
   });
 
-  if (parsed.errors && parsed.errors.length) {
-    console.warn('Papa.parse warnings:', parsed.errors.slice(0, 5));
+  if (parsed.errors && parsed.errors.length){
+    // PapaParse может сообщать некритичные предупреждения о полях —
+    // не блокируем рендер, просто логируем в консоль.
+    console.warn('CSV parse warnings:', parsed.errors.slice(0, 5));
   }
 
-  // Приводим каждую "сырую" строку CSV к удобной для анализа модели.
-  const rows = parsed.data
-    .filter(r => r[COL.ID] && r[COL.ID].trim()) // отбрасываем случайные пустые строки
-    .map(r => {
-      const planShip   = parseRuDate(r[COL.PLAN_SHIP]);
-      const handedOver  = parseRuDate(r[COL.HANDED_OVER]);
-      const sentToWork  = parseRuDate(r[COL.SENT_TO_WORK]);
-      const pickStart   = parseRuDate(r[COL.PICK_START]);
-      const pickEnd     = parseRuDate(r[COL.PICK_END]);
-      const createdAt   = parseRuDate(r[COL.CREATED_AT]);
-
-      // --- Ключевая логика KPI "вовремя / просрочено / под риском" ---
-      // Допуск (grace period): если "Передача в доставку" превышает
-      // "Плановую дату отгрузки" менее чем на ON_TIME_GRACE_HOURS —
-      // заказ всё равно считается ВОВРЕМЯ. Константа задана в БЛОКЕ 1
-      // выше (ON_TIME_GRACE_HOURS = 30 / 60 часа).
-      let onTimeStatus = 'no-data'; // no-data | on-time | late | at-risk
-      let delayHours = null;
-      if (planShip && handedOver) {
-        delayHours = hoursBetween(planShip, handedOver); // >0 значит опоздали
-        onTimeStatus = delayHours <= ON_TIME_GRACE_HOURS ? 'on-time' : 'late';
-      } else if (planShip && !handedOver) {
-        // Заказ ещё не передан в доставку. Если плановая дата уже в прошлом
-        // относительно "сейчас" (момента открытия дашборда) — это риск.
-        // Допуск здесь тоже применяется: план, "просроченный" менее чем
-        // на 30 минут, ещё не считаем риском.
-        onTimeStatus = hoursBetween(planShip, new Date()) > ON_TIME_GRACE_HOURS ? 'at-risk' : 'no-data';
-      }
-
-      return {
-        id: r[COL.ID],
-        orderNo: r[COL.ORDER_NO] || r[COL.ID],
-        owner: r[COL.OWNER] || '—',
-        contragent: r[COL.CONTRAGENT] || '—',
-        channel: r[COL.CHANNEL] || 'Не указан',
-        city: extractCity(r[COL.ADDRESS]),
-        status: r[COL.STATUS] || 'Не указан',
-        picker: r[COL.PICKER] && r[COL.PICKER].trim() ? r[COL.PICKER].trim() : 'Не назначен',
-        qtyPieces: parseRuNumber(r[COL.QTY_PIECES]) || 0,
-        qtyLines: parseRuNumber(r[COL.QTY_LINES]) || 0,
-        createdAt, planShip, sentToWork, pickStart, pickEnd, handedOver,
-        onTimeStatus, delayHours,
-      };
-    });
-
-  return rows;
+  const rows = parsed.data;
+  // Первая строка — заголовок, отбрасываем её
+  const dataRows = rows.slice(1).filter(r => r.length > 1 && r[COL.orderNumber]);
+  return dataRows;
 }
 
-/* ============================================================================
-   БЛОК 3. РАСЧЁТ АНАЛИТИКИ
-   ============================================================================ */
+// ---------- ПОСТРОЕНИЕ ДАШБОРДА ----------
 
-function computeAnalytics(rows) {
-  const total = rows.length;
+function buildDashboard(orders){
 
-  // --- Ключевой KPI: доля "вовремя" среди заказов, где есть обе даты ---
-  const withBothDates = rows.filter(r => r.onTimeStatus === 'on-time' || r.onTimeStatus === 'late');
-  const onTime = withBothDates.filter(r => r.onTimeStatus === 'on-time');
-  const late   = withBothDates.filter(r => r.onTimeStatus === 'late');
-  const atRisk = rows.filter(r => r.onTimeStatus === 'at-risk');
-  const onTimeRate = withBothDates.length ? (onTime.length / withBothDates.length) * 100 : 0;
-  const avgDelayHours = late.length
-    ? late.reduce((s, r) => s + r.delayHours, 0) / late.length
-    : 0;
-
-  // --- Складской статус: распределение (для конвейера и пирога) ---
-  const statusOrder = ['ОТГРУЖЕН', 'ГОТОВ К ОТГРУЗКЕ', 'В ОБРАБОТКЕ', 'АННУЛИРОВАН ДО СБОРКИ', 'АННУЛИРОВАН ПОСЛЕ СБОРКИ'];
-  const statusCounts = {};
-  rows.forEach(r => { statusCounts[r.status] = (statusCounts[r.status] || 0) + 1; });
-  const statusList = statusOrder
-    .filter(s => statusCounts[s])
-    .map(s => ({ status: s, count: statusCounts[s] }))
-    .concat(
-      Object.keys(statusCounts)
-        .filter(s => !statusOrder.includes(s))
-        .map(s => ({ status: s, count: statusCounts[s] }))
-    );
-
-  const cancelled = rows.filter(r => r.status.startsWith('АННУЛИРОВАН')).length;
-  const shipped = statusCounts['ОТГРУЖЕН'] || 0;
-  const readyToShip = statusCounts['ГОТОВ К ОТГРУЗКЕ'] || 0;
-  const inProcess = statusCounts['В ОБРАБОТКЕ'] || 0;
-
-  // --- Динамика по дням: заказы, переданные в доставку, с разбивкой вовремя/просрочка ---
-  const byDayMap = new Map(); // 'YYYY-MM-DD' -> {onTime, late, total}
-  withBothDates.forEach(r => {
-    const key = r.handedOver.toISOString().slice(0, 10);
-    if (!byDayMap.has(key)) byDayMap.set(key, { onTime: 0, late: 0 });
-    byDayMap.get(key)[r.onTimeStatus === 'on-time' ? 'onTime' : 'late']++;
+  // Классифицируем все заказы один раз и обогащаем их вычисленными полями
+  const enriched = orders.map(o => {
+    const cls = classifyOrder(o);
+    const planDate = parseRuDate(o[COL.planDate]);
+    const factDate = parseRuDate(o[COL.factDate]);
+    const lateMs = (cls === 'late' && planDate && factDate)
+      ? (factDate.getTime() - planDate.getTime())
+      : null;
+    return {
+      raw: o,
+      status: cls,
+      priority: isPriority(o[COL.priorityColor]),
+      warehouseStatus: normalizeStatus(o[COL.warehouseStatus]),
+      region: o[COL.region] || 'Не указан',
+      carrier: o[COL.deliveryType] || 'Не указан',
+      contragent: o[COL.contragent] || 'Не указан',
+      orderNumber: o[COL.orderNumber],
+      planDate, factDate, lateMs,
+      qty: parseInt(o[COL.qty], 10) || 0,
+    };
   });
-  const days = Array.from(byDayMap.keys()).sort();
-  const timeline = days.map(d => ({ day: d, ...byDayMap.get(d) }));
 
-  // --- Топ городов ---
-  const cityMap = new Map();
-  rows.forEach(r => cityMap.set(r.city, (cityMap.get(r.city) || 0) + 1));
-  const topCities = Array.from(cityMap.entries())
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 8);
+  const total = enriched.length;
+  const onTime   = enriched.filter(o => o.status === 'on_time');
+  const late     = enriched.filter(o => o.status === 'late');
+  const progress = enriched.filter(o => o.status === 'in_progress');
+  const cancelled= enriched.filter(o => o.status === 'cancelled');
+  const noPlan   = enriched.filter(o => o.status === 'no_plan');
+  const shippedTotal = onTime.length + late.length; // база для % своевременности
+  const onTimePct = shippedTotal ? (onTime.length / shippedTotal * 100) : 0;
 
-  // --- Сборщики: объём + % вовремя ---
-  const pickerMap = new Map(); // picker -> {total, onTime, late}
-  rows.forEach(r => {
-    if (r.picker === 'Не назначен') return;
-    if (!pickerMap.has(r.picker)) pickerMap.set(r.picker, { total: 0, onTime: 0, late: 0 });
-    const p = pickerMap.get(r.picker);
-    p.total++;
-    if (r.onTimeStatus === 'on-time') p.onTime++;
-    if (r.onTimeStatus === 'late') p.late++;
-  });
-  const topPickers = Array.from(pickerMap.entries())
-    .sort((a, b) => b[1].total - a[1].total)
-    .slice(0, 8);
+  const priorityOrders = enriched.filter(o => o.priority);
+  const priorityOnTime = priorityOrders.filter(o => o.status === 'on_time');
+  const priorityLate   = priorityOrders.filter(o => o.status === 'late');
+  const priorityProgress = priorityOrders.filter(o => o.status === 'in_progress');
+  const priorityShippedTotal = priorityOnTime.length + priorityLate.length;
+  const priorityOnTimePct = priorityShippedTotal ? (priorityOnTime.length / priorityShippedTotal * 100) : 0;
 
-  // --- Каналы продаж / ТК ---
-  const channelMap = new Map();
-  rows.forEach(r => channelMap.set(r.channel, (channelMap.get(r.channel) || 0) + 1));
-  const channels = Array.from(channelMap.entries()).sort((a, b) => b[1] - a[1]);
-
-  // --- Средняя длительность этапов обработки (в часах) ---
-  function avgStage(getStart, getEnd) {
-    const diffs = rows
-      .map(r => {
-        const s = getStart(r), e = getEnd(r);
-        return (s && e) ? hoursBetween(s, e) : null;
-      })
-      .filter(v => v !== null && v >= 0 && v < 24 * 5); // отсекаем выбросы >5 суток (аномалии данных)
-    if (!diffs.length) return 0;
-    return diffs.reduce((a, b) => a + b, 0) / diffs.length;
+  // ---------- ШАПКА: период данных ----------
+  const allOrderDates = enriched.map(o => parseRuDate(o.raw[COL.orderDate])).filter(Boolean);
+  if (allOrderDates.length){
+    const minD = new Date(Math.min(...allOrderDates));
+    const maxD = new Date(Math.max(...allOrderDates));
+    document.getElementById('metaPeriod').textContent =
+      `${minD.toLocaleDateString('ru-RU')} — ${maxD.toLocaleDateString('ru-RU')}`;
   }
-  const stageDurations = [
-    { stage: 'Создание → в работу',      hours: avgStage(r => r.createdAt, r => r.sentToWork) },
-    { stage: 'В работу → начало сборки', hours: avgStage(r => r.sentToWork, r => r.pickStart) },
-    { stage: 'Сборка',                   hours: avgStage(r => r.pickStart, r => r.pickEnd) },
-    { stage: 'Сборка → передача в дост.', hours: avgStage(r => r.pickEnd, r => r.handedOver) },
-  ];
+  document.getElementById('metaCount').textContent = total.toLocaleString('ru-RU');
+  document.getElementById('metaGenerated').textContent = new Date().toLocaleString('ru-RU');
 
-  // --- Структура по размеру заказа (кол-во штук) ---
-  const sizeBuckets = [
-    { label: '1', test: q => q === 1 },
-    { label: '2–5', test: q => q >= 2 && q <= 5 },
-    { label: '6–15', test: q => q >= 6 && q <= 15 },
-    { label: '16–50', test: q => q >= 16 && q <= 50 },
-    { label: '50+', test: q => q > 50 },
-  ];
-  const sizeCounts = sizeBuckets.map(b => ({
-    label: b.label,
-    count: rows.filter(r => b.test(r.qtyPieces)).length,
-  }));
+  // ---------- ГЛАВНЫЕ KPI ----------
+  document.getElementById('kpiOnTimePct').textContent = onTimePct.toFixed(1);
+  document.getElementById('kpiOnTimeGate').style.width = onTimePct.toFixed(1) + '%';
+  document.getElementById('kpiOnTimeCount').textContent = onTime.length.toLocaleString('ru-RU');
+  document.getElementById('kpiShippedTotal').textContent = shippedTotal.toLocaleString('ru-RU');
 
-  // --- Проблемные заказы: просроченные + под риском, отсортированы по критичности ---
-  const problems = rows
-    .filter(r => r.onTimeStatus === 'late' || r.onTimeStatus === 'at-risk')
-    .map(r => {
-      let riskHours;
-      if (r.onTimeStatus === 'late') {
-        riskHours = r.delayHours;
-      } else {
-        // для "под риском" считаем, сколько часов план уже прошёл
-        riskHours = hoursBetween(r.planShip, new Date());
-      }
-      return { ...r, riskHours };
-    })
-    .sort((a, b) => b.riskHours - a.riskHours);
+  document.getElementById('kpiLateCount').textContent = late.length.toLocaleString('ru-RU');
+  document.getElementById('kpiLatePct').textContent = shippedTotal ? (late.length/shippedTotal*100).toFixed(1) : '0.0';
 
-  return {
-    total, onTime, late, atRisk, onTimeRate, avgDelayHours, withBothDates,
-    statusList, cancelled, shipped, readyToShip, inProcess,
-    timeline, topCities, topPickers, channels, stageDurations, sizeCounts,
-    problems,
-  };
-}
+  document.getElementById('kpiTotal').textContent = total.toLocaleString('ru-RU');
+  document.getElementById('kpiProgress').textContent = progress.length.toLocaleString('ru-RU');
+  document.getElementById('kpiCancelled').textContent = cancelled.length.toLocaleString('ru-RU');
 
-/* ============================================================================
-   БЛОК 4. ОТРИСОВКА UI
-   ============================================================================ */
+  document.getElementById('kpiPriorityTotal').textContent = priorityOrders.length.toLocaleString('ru-RU');
+  document.getElementById('kpiPriorityOnTimePct').textContent = priorityOnTimePct.toFixed(1);
 
-// Единая палитра для соответствия статусов и цвета — переиспользуется
-// в конвейере, легенде и пироге статусов.
-const STATUS_COLORS = {
-  'ОТГРУЖЕН':                 '#33D68C',
-  'ГОТОВ К ОТГРУЗКЕ':          '#4C8DFF',
-  'В ОБРАБОТКЕ':               '#F5B23C',
-  'АННУЛИРОВАН ДО СБОРКИ':     '#F3555A',
-  'АННУЛИРОВАН ПОСЛЕ СБОРКИ':  '#B23B41',
-};
-function statusColor(s) { return STATUS_COLORS[s] || '#8CA0B8'; }
-
-// Общие настройки Chart.js под тёмную тему дашборда.
-Chart.defaults.color = '#8CA0B8';
-Chart.defaults.font.family = "'Inter', sans-serif";
-Chart.defaults.font.size = 11;
-Chart.defaults.borderColor = '#223252';
-
-function renderHero(a) {
-  const pct = a.onTimeRate;
-  document.getElementById('hero-pct').textContent = pct.toFixed(1) + '%';
-  document.getElementById('stat-ontime').textContent = fmtInt(a.onTime.length);
-  document.getElementById('stat-late').textContent = fmtInt(a.late.length);
-  document.getElementById('stat-atrisk').textContent = fmtInt(a.atRisk.length);
-  document.getElementById('stat-avg-delay').textContent = a.avgDelayHours.toFixed(1);
-
-  // Кольцевой индикатор: длина окружности r=78 -> 2*pi*78 ≈ 490
-  const circumference = 2 * Math.PI * 78;
-  const offset = circumference - (pct / 100) * circumference;
-  const ring = document.getElementById('hero-ring-fg');
-  ring.setAttribute('stroke-dasharray', circumference.toFixed(1));
-  ring.setAttribute('stroke-dashoffset', offset.toFixed(1));
-  // Цвет кольца реагирует на уровень KPI — светофор
-  ring.setAttribute('stroke', pct >= 85 ? '#33D68C' : pct >= 65 ? '#F5B23C' : '#F3555A');
-}
-
-function renderKpiCards(a) {
-  const cards = [
-    { label: 'Всего заказов', value: fmtInt(a.total), sub: 'в выгрузке outbound.csv', accent: '#4C8DFF' },
-    { label: 'Отгружено', value: fmtInt(a.shipped), sub: `${((a.shipped/a.total)*100).toFixed(0)}% от всех заказов`, accent: '#33D68C' },
-    { label: 'Готово к отгрузке', value: fmtInt(a.readyToShip), sub: 'ожидают передачи в доставку', accent: '#4C8DFF' },
-    { label: 'В обработке', value: fmtInt(a.inProcess), sub: 'сборка/упаковка в процессе', accent: '#F5B23C' },
-    { label: 'Аннулировано', value: fmtInt(a.cancelled), sub: 'до и после сборки', accent: '#F3555A' },
-    { label: 'Ср. просрочка', value: a.avgDelayHours.toFixed(1) + ' ч', sub: 'по опоздавшим заказам', accent: '#F3555A' },
-  ];
-  document.getElementById('kpi-grid').innerHTML = cards.map(c => `
-    <div class="kpi-card" style="--accent:${c.accent}">
-      <div class="kpi-label">${c.label}</div>
-      <div class="kpi-value num">${c.value}</div>
-      <div class="kpi-sub">${c.sub}</div>
-    </div>
-  `).join('');
-}
-
-function renderPulse(a) {
-  const total = a.total;
-  document.getElementById('pulse-total').textContent = fmtInt(total) + ' заказов';
-
-  const rail = document.getElementById('pulse-rail');
-  rail.innerHTML = a.statusList.map(s => {
-    const pct = (s.count / total) * 100;
-    if (pct < 0.6) return ''; // слишком узкий сегмент — подпись не влезет, оставим только цвет через legend
-    return `<div class="pulse-seg" style="width:${pct}%; background:${statusColor(s.status)}"
-                 title="${s.status}: ${s.count} (${pct.toFixed(1)}%)">
-              ${pct >= 6 ? pct.toFixed(0) + '%' : ''}
-            </div>`;
-  }).join('');
-
-  document.getElementById('pulse-legend').innerHTML = a.statusList.map(s => `
-    <div class="pulse-legend-item">
-      <span class="pulse-legend-dot" style="background:${statusColor(s.status)}"></span>
-      ${s.status} · <span class="num">${fmtInt(s.count)}</span>
-    </div>
-  `).join('');
-}
-
-function renderTimelineChart(a) {
-  const labels = a.timeline.map(d => {
-    const [y, m, dd] = d.day.split('-');
-    return `${dd}.${m}`;
-  });
-  new Chart(document.getElementById('chart-timeline'), {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: 'Вовремя',
-          data: a.timeline.map(d => d.onTime),
-          backgroundColor: '#33D68C',
-          borderRadius: 3,
-          stack: 's',
-        },
-        {
-          label: 'Просрочено',
-          data: a.timeline.map(d => d.late),
-          backgroundColor: '#F3555A',
-          borderRadius: 3,
-          stack: 's',
-        },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 14 } } },
-      scales: {
-        x: { stacked: true, grid: { display: false } },
-        y: { stacked: true, grid: { color: '#1a2740' }, beginAtZero: true },
-      },
-    },
-  });
-}
-
-function renderStatusChart(a) {
-  new Chart(document.getElementById('chart-status'), {
+  // ---------- ГРАФИК: донат по статусам ----------
+  new Chart(document.getElementById('chartStatusDonut'), {
     type: 'doughnut',
     data: {
-      labels: a.statusList.map(s => s.status),
+      labels: ['Вовремя', 'С опозданием', 'В работе', 'Аннулировано'],
       datasets: [{
-        data: a.statusList.map(s => s.count),
-        backgroundColor: a.statusList.map(s => statusColor(s.status)),
-        borderColor: '#101B2D',
-        borderWidth: 3,
-      }],
+        data: [onTime.length, late.length, progress.length, cancelled.length],
+        backgroundColor: ['#3dd68c', '#ff6b5e', '#5b9bd5', '#6b7585'],
+        borderColor: '#171e26',
+        borderWidth: 2,
+      }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
-      cutout: '62%',
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 10, font: { size: 10.5 } } } },
-    },
-  });
-}
-
-function renderCitiesChart(a) {
-  new Chart(document.getElementById('chart-cities'), {
-    type: 'bar',
-    data: {
-      labels: a.topCities.map(c => c[0]),
-      datasets: [{
-        data: a.topCities.map(c => c[1]),
-        backgroundColor: '#4C8DFF',
-        borderRadius: 4,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { color: '#1a2740' }, beginAtZero: true },
-        y: { grid: { display: false } },
-      },
-    },
-  });
-}
-
-function renderPickersChart(a) {
-  const rate = p => p.total ? (p.onTime / (p.onTime + p.late || 1)) * 100 : 0;
-  new Chart(document.getElementById('chart-pickers'), {
-    type: 'bar',
-    data: {
-      labels: a.topPickers.map(p => p[0]),
-      datasets: [
-        {
-          type: 'bar',
-          label: 'Заказов собрано',
-          data: a.topPickers.map(p => p[1].total),
-          backgroundColor: '#9C7CF4',
-          borderRadius: 4,
-          yAxisID: 'y',
-        },
-        {
-          type: 'line',
-          label: '% вовремя',
-          data: a.topPickers.map(p => rate(p[1])),
-          borderColor: '#33D68C',
-          backgroundColor: '#33D68C',
-          yAxisID: 'y1',
-          tension: 0.3,
-          pointRadius: 3,
-        },
-      ],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'top', labels: { boxWidth: 10, padding: 10, font: { size: 10 } } } },
-      scales: {
-        x: { grid: { display: false }, ticks: { font: { size: 9.5 } } },
-        y: { grid: { color: '#1a2740' }, beginAtZero: true, position: 'left' },
-        y1: { beginAtZero: true, max: 100, position: 'right', grid: { display: false } },
-      },
-    },
-  });
-}
-
-function renderChannelsChart(a) {
-  const palette = ['#4C8DFF', '#33D68C', '#F5B23C', '#9C7CF4', '#F3555A'];
-  new Chart(document.getElementById('chart-channels'), {
-    type: 'pie',
-    data: {
-      labels: a.channels.map(c => c[0]),
-      datasets: [{
-        data: a.channels.map(c => c[1]),
-        backgroundColor: a.channels.map((_, i) => palette[i % palette.length]),
-        borderColor: '#101B2D',
-        borderWidth: 3,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 10, font: { size: 10.5 } } } },
-    },
-  });
-}
-
-function renderStagesChart(a) {
-  new Chart(document.getElementById('chart-stages'), {
-    type: 'bar',
-    data: {
-      labels: a.stageDurations.map(s => s.stage),
-      datasets: [{
-        data: a.stageDurations.map(s => +s.hours.toFixed(1)),
-        backgroundColor: ['#4C8DFF', '#9C7CF4', '#F5B23C', '#33D68C'],
-        borderRadius: 4,
-      }],
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: true, maintainAspectRatio: false,
+      responsive:true, maintainAspectRatio:false,
       plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => `${ctx.parsed.x} ч` } },
+        legend: { position:'bottom', labels:{ color:'#93a0b0', font:{size:11}, padding:14, usePointStyle:true } },
+        tooltip: { callbacks: {
+          label: ctx => ` ${ctx.label}: ${ctx.raw.toLocaleString('ru-RU')} (${(ctx.raw/total*100).toFixed(1)}%)`
+        }}
       },
-      scales: {
-        x: { grid: { color: '#1a2740' }, beginAtZero: true, title: { display: true, text: 'часы', color: '#56698A' } },
-        y: { grid: { display: false } },
-      },
-    },
-  });
-}
-
-function renderSizesChart(a) {
-  new Chart(document.getElementById('chart-sizes'), {
-    type: 'bar',
-    data: {
-      labels: a.sizeCounts.map(s => s.label),
-      datasets: [{
-        label: 'Заказов',
-        data: a.sizeCounts.map(s => s.count),
-        backgroundColor: '#4C8DFF',
-        borderRadius: 5,
-      }],
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { grid: { display: false }, title: { display: true, text: 'штук в заказе', color: '#56698A' } },
-        y: { grid: { color: '#1a2740' }, beginAtZero: true },
-      },
-    },
-  });
-}
-
-/* ----------------------------------------------------------------------
-   Таблица "Проблемные заказы": сортировка по клику на заголовок +
-   фильтрация по тексту и по статусу.
-
-   Подход: полный список проблемных заказов (a.problems) сохраняется
-   в переменной верхнего уровня (problemsState.all). Любое действие
-   пользователя (клик по заголовку, ввод в поиск, смена статуса) не
-   пересчитывает аналитику заново — просто заново отрисовывает таблицу
-   из уже готового массива с применёнными filter/sort. Это быстро даже
-   на тысячах строк, т.к. вся тяжёлая работа (парсинг CSV, агрегации)
-   была сделана один раз в computeAnalytics().
-   ---------------------------------------------------------------------- */
-
-// Состояние таблицы: исходные данные + текущие фильтры/сортировка.
-const problemsState = {
-  all: [],                 // полный список проблемных заказов (не мутируется)
-  sortKey: 'riskHours',    // по какому полю сортируем
-  sortDir: 'desc',         // 'asc' | 'desc'
-  searchText: '',          // текст из поля поиска (уже в нижнем регистре)
-  statusFilter: 'all',     // 'all' | 'late' | 'at-risk'
-};
-
-const MAX_PROBLEM_ROWS = 150; // ограничение вывода в DOM ради производительности
-
-/** Возвращает значение поля строки, приведённое к сравнимому виду для сортировки. */
-function getSortValue(row, key, type) {
-  const v = row[key];
-  if (type === 'date') return v ? v.getTime() : -Infinity;
-  if (type === 'number') return typeof v === 'number' ? v : -Infinity;
-  // текстовое сравнение — без учёта регистра
-  return (v === null || v === undefined ? '' : String(v)).toLowerCase();
-}
-
-/** Применяет текущие фильтры (поиск + статус) к полному списку проблем. */
-function applyProblemFilters(list) {
-  let result = list;
-
-  if (problemsState.statusFilter !== 'all') {
-    result = result.filter(r => r.onTimeStatus === problemsState.statusFilter);
-  }
-
-  if (problemsState.searchText) {
-    const q = problemsState.searchText;
-    // Ищем совпадение сразу по нескольким полям — так фильтр полезен и для
-    // "найти заказ по номеру", и для "показать всё по этому сборщику/городу".
-    result = result.filter(r =>
-      String(r.orderNo).toLowerCase().includes(q) ||
-      r.contragent.toLowerCase().includes(q) ||
-      r.city.toLowerCase().includes(q) ||
-      r.picker.toLowerCase().includes(q)
-    );
-  }
-
-  return result;
-}
-
-/** Сортирует список проблем согласно problemsState.sortKey/sortDir. */
-function applyProblemSort(list) {
-  const { sortKey, sortDir } = problemsState;
-  const type = document
-    .querySelector(`th[data-sort-key="${sortKey}"]`)
-    ?.dataset.sortType || 'text';
-  const dirMul = sortDir === 'asc' ? 1 : -1;
-
-  return [...list].sort((a, b) => {
-    const va = getSortValue(a, sortKey, type);
-    const vb = getSortValue(b, sortKey, type);
-    if (va < vb) return -1 * dirMul;
-    if (va > vb) return 1 * dirMul;
-    return 0;
-  });
-}
-
-/** Обновляет визуальные стрелки сортировки в заголовках таблицы. */
-function updateSortHeaders() {
-  document.querySelectorAll('th[data-sort-key]').forEach(th => {
-    th.classList.remove('sort-active', 'sort-asc', 'sort-desc');
-    if (th.dataset.sortKey === problemsState.sortKey) {
-      th.classList.add('sort-active', problemsState.sortDir === 'asc' ? 'sort-asc' : 'sort-desc');
+      cutout: '68%',
     }
   });
-}
 
-/** Полная перерисовка тела таблицы: фильтр -> сортировка -> HTML. */
-function redrawProblemsTable() {
-  const filtered = applyProblemFilters(problemsState.all);
-  const sorted = applyProblemSort(filtered);
-  const rows = sorted.slice(0, MAX_PROBLEM_ROWS);
-
-  // Бейдж всегда показывает количество СЕЙЧАС ВИДИМЫХ (после фильтра) заказов,
-  // а не общее число проблем — это то, что реально ждёт руководителя на экране.
-  const badge = document.getElementById('problem-count-badge');
-  badge.textContent = filtered.length === problemsState.all.length
-    ? `${fmtInt(filtered.length)} заказов`
-    : `${fmtInt(filtered.length)} из ${fmtInt(problemsState.all.length)}`;
-
-  const tbody = document.getElementById('problem-table-body');
-
-  if (!rows.length) {
-    tbody.innerHTML = `<tr class="table-empty-row"><td colspan="9">Ничего не найдено — попробуйте изменить фильтр</td></tr>`;
-    updateSortHeaders();
-    return;
+  // ---------- ГРАФИК: динамика по дням (план vs факт) ----------
+  // Группируем по дню ПЛАНОВОЙ даты отгрузки — так руководству видно,
+  // какой день был проблемным по исполнению плана.
+  const byDay = {}; // { 'YYYY-MM-DD': {onTime, late, progress} }
+  function dayKey(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   }
+  enriched.forEach(o => {
+    if (!o.planDate) return;
+    const key = dayKey(o.planDate);
+    if (!byDay[key]) byDay[key] = { onTime:0, late:0, progress:0 };
+    if (o.status === 'on_time') byDay[key].onTime++;
+    else if (o.status === 'late') byDay[key].late++;
+    else if (o.status === 'in_progress') byDay[key].progress++;
+  });
+  const sortedDays = Object.keys(byDay).sort();
+  const dayLabels = sortedDays.map(k => {
+    const [y,m,d] = k.split('-');
+    return `${d}.${m}`;
+  });
 
-  tbody.innerHTML = rows.map(r => {
-    const isLate = r.onTimeStatus === 'late';
-    const pillClass = isLate ? 'pill-bad' : 'pill-warn';
-    const pillText = isLate ? 'Просрочен' : 'Под риском';
-    return `
-      <tr>
-        <td>${r.orderNo}</td>
-        <td>${r.contragent}</td>
-        <td>${r.city}</td>
-        <td><span class="pill ${pillClass}">${pillText}</span></td>
-        <td>${fmtDate(r.planShip)}</td>
-        <td>${r.handedOver ? fmtDate(r.handedOver) : '—'}</td>
-        <td class="num">${r.riskHours.toFixed(1)}</td>
-        <td>${r.picker}</td>
-        <td class="num">${fmtInt(r.qtyPieces)}</td>
-      </tr>`;
+  new Chart(document.getElementById('chartTimeline'), {
+    type: 'bar',
+    data: {
+      labels: dayLabels,
+      datasets: [
+        { label:'Вовремя', data: sortedDays.map(k=>byDay[k].onTime), backgroundColor:'#3dd68c', stack:'s' },
+        { label:'С опозданием', data: sortedDays.map(k=>byDay[k].late), backgroundColor:'#ff6b5e', stack:'s' },
+        { label:'В работе', data: sortedDays.map(k=>byDay[k].progress), backgroundColor:'#5b9bd5', stack:'s' },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { stacked:true, ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ color:'#232b35' }, title:{display:true,text:'Плановая дата отгрузки',color:'#5c6b7885'} },
+        y: { stacked:true, ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ color:'#232b35' }, beginAtZero:true }
+      },
+      plugins: {
+        legend: { position:'bottom', labels:{ color:'#93a0b0', font:{size:11}, usePointStyle:true } }
+      }
+    }
+  });
+
+  // ---------- ГРАФИК: по типу доставки ----------
+  const carrierCounts = {};
+  enriched.forEach(o => { carrierCounts[o.carrier] = (carrierCounts[o.carrier]||0)+1; });
+  const carrierEntries = Object.entries(carrierCounts).sort((a,b)=>b[1]-a[1]);
+
+  new Chart(document.getElementById('chartCarrier'), {
+    type: 'bar',
+    data: {
+      labels: carrierEntries.map(e=>e[0]),
+      datasets: [{ data: carrierEntries.map(e=>e[1]), backgroundColor:'#5b9bd5', borderRadius:2 }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' } },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } }
+      },
+      plugins: { legend:{ display:false } }
+    }
+  });
+
+  // ---------- ГРАФИК: по региону (доля вовремя) ----------
+  const regionStats = {}; // { region: {onTime, late} }
+  enriched.forEach(o => {
+    if (o.status !== 'on_time' && o.status !== 'late') return;
+    if (!regionStats[o.region]) regionStats[o.region] = { onTime:0, late:0 };
+    regionStats[o.region][o.status === 'on_time' ? 'onTime' : 'late']++;
+  });
+  const regionEntries = Object.entries(regionStats);
+
+  new Chart(document.getElementById('chartRegion'), {
+    type: 'bar',
+    data: {
+      labels: regionEntries.map(e=>e[0]),
+      datasets: [
+        { label:'Вовремя', data: regionEntries.map(e=>e[1].onTime), backgroundColor:'#3dd68c', stack:'r' },
+        { label:'Опоздание', data: regionEntries.map(e=>e[1].late), backgroundColor:'#ff6b5e', stack:'r' },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { stacked:true, ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } },
+        y: { stacked:true, ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' } }
+      },
+      plugins: { legend:{ position:'bottom', labels:{ color:'#93a0b0', font:{size:10}, usePointStyle:true } } }
+    }
+  });
+
+  // ---------- ГРАФИК: текущий статус склада ----------
+  const whStatusLabels = {
+    'ОТГРУЖЕН':'Отгружен', 'В_ОБРАБОТКЕ':'В обработке',
+    'ГОТОВ_К_ОТГРУЗКЕ':'Готов к отгрузке', 'СОЗДАН':'Создан',
+    'АННУЛИРОВАН_ДО':'Аннулирован (до сборки)', 'АННУЛИРОВАН_ПОСЛЕ':'Аннулирован (после сборки)'
+  };
+  const whCounts = {};
+  enriched.forEach(o => { whCounts[o.warehouseStatus] = (whCounts[o.warehouseStatus]||0)+1; });
+  const whEntries = Object.entries(whCounts).sort((a,b)=>b[1]-a[1]);
+  const whColors = {
+    'ОТГРУЖЕН':'#3dd68c','В_ОБРАБОТКЕ':'#f0b429','ГОТОВ_К_ОТГРУЗКЕ':'#5b9bd5',
+    'СОЗДАН':'#93a0b0','АННУЛИРОВАН_ДО':'#6b7585','АННУЛИРОВАН_ПОСЛЕ':'#4a5261'
+  };
+
+  new Chart(document.getElementById('chartWarehouseStatus'), {
+    type: 'bar',
+    data: {
+      labels: whEntries.map(e=>whStatusLabels[e[0]]||e[0]),
+      datasets: [{ data: whEntries.map(e=>e[1]), backgroundColor: whEntries.map(e=>whColors[e[0]]||'#5b9bd5'), borderRadius:2 }]
+    },
+    options: {
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' } },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } }
+      },
+      plugins: { legend:{ display:false } }
+    }
+  });
+
+  // ---------- ГРАФИК: величина опоздания (гистограмма по бакетам) ----------
+  const buckets = [
+    { label:'до 1 ч', min:0, max:60*60*1000 },
+    { label:'1–3 ч', min:60*60*1000, max:3*60*60*1000 },
+    { label:'3–6 ч', min:3*60*60*1000, max:6*60*60*1000 },
+    { label:'6–24 ч', min:6*60*60*1000, max:24*60*60*1000 },
+    { label:'> 24 ч', min:24*60*60*1000, max:Infinity },
+  ];
+  const bucketCounts = buckets.map(b =>
+    late.filter(o => o.lateMs > b.min && o.lateMs <= b.max).length
+  );
+
+  new Chart(document.getElementById('chartLateBuckets'), {
+    type: 'bar',
+    data: {
+      labels: buckets.map(b=>b.label),
+      datasets: [{ data: bucketCounts, backgroundColor:'#ff6b5e', borderRadius:2 }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ display:false } },
+        y: { ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ color:'#232b35' }, beginAtZero:true }
+      },
+      plugins: {
+        legend:{ display:false },
+        tooltip: { callbacks:{ label: ctx => ` ${ctx.raw.toLocaleString('ru-RU')} заказов` } }
+      }
+    }
+  });
+
+  // ---------- ГРАФИК: топ-10 контрагентов по опозданиям ----------
+  const lateByContragent = {};
+  late.forEach(o => { lateByContragent[o.contragent] = (lateByContragent[o.contragent]||0)+1; });
+  const topLate = Object.entries(lateByContragent).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+  new Chart(document.getElementById('chartTopLateClients'), {
+    type: 'bar',
+    data: {
+      labels: topLate.map(e => e[0].length > 28 ? e[0].slice(0,26)+'…' : e[0]),
+      datasets: [{ data: topLate.map(e=>e[1]), backgroundColor:'#ff6b5e', borderRadius:2 }]
+    },
+    options: {
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' }, beginAtZero:true },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } }
+      },
+      plugins: { legend:{ display:false } }
+    }
+  });
+
+  // ---------- ТАБЛИЦА: приоритетные клиенты ----------
+  const prioBody = document.getElementById('prioTableBody');
+  document.getElementById('prioTotalN').textContent = priorityOrders.length.toLocaleString('ru-RU');
+  document.getElementById('prioOnTime').textContent = priorityOnTime.length.toLocaleString('ru-RU');
+  document.getElementById('prioLate').textContent = priorityLate.length.toLocaleString('ru-RU');
+  document.getElementById('prioProgress').textContent = priorityProgress.length.toLocaleString('ru-RU');
+
+  // Показываем в первую очередь проблемные (опоздавшие) приоритетные заказы,
+  // затем те что в работе — это то, за чем нужно следить в первую очередь.
+  const prioSorted = [...priorityLate, ...priorityProgress, ...priorityOnTime].slice(0, 200);
+  prioBody.innerHTML = prioSorted.map(o => {
+    const statusLabel = o.status === 'on_time' ? '<span class="pill" style="background:#235a45;color:#3dd68c;">Вовремя</span>'
+      : o.status === 'late' ? '<span class="pill pill-late">Опоздание</span>'
+      : '<span class="pill" style="background:#2b4360;color:#5b9bd5;">В работе</span>';
+    return `<tr>
+      <td>${o.orderNumber}</td>
+      <td>${o.contragent}</td>
+      <td>${o.region}</td>
+      <td class="num">${fmtDate(o.planDate)}</td>
+      <td class="num">${fmtDate(o.factDate)}</td>
+      <td>${statusLabel}</td>
+    </tr>`;
   }).join('');
 
-  updateSortHeaders();
+  // ---------- ТАБЛИЦА: все проблемные (опоздавшие) заказы ----------
+  const lateBody = document.getElementById('lateTableBody');
+  const lateSorted = [...late].sort((a,b) => (b.lateMs||0) - (a.lateMs||0)); // сначала самые большие опоздания
+  lateBody.innerHTML = lateSorted.map(o => `
+    <tr>
+      <td>${o.orderNumber}</td>
+      <td>${o.contragent}</td>
+      <td>${o.region}</td>
+      <td>${o.carrier}</td>
+      <td class="num">${fmtDate(o.planDate)}</td>
+      <td class="num">${fmtDate(o.factDate)}</td>
+      <td class="num val-late">${fmtDuration(o.lateMs)}</td>
+      <td>${o.priority ? '<span class="pill pill-priority">Зелёный</span>' : ''}</td>
+    </tr>
+  `).join('');
 }
 
-/** Навешивает обработчики на заголовки (сортировка), поиск и селект статуса. */
-function bindProblemsTableControls() {
-  // Клик по заголовку: тот же ключ -> переключаем направление;
-  // новый ключ -> сортируем по нему по убыванию (самое критичное сверху).
-  document.querySelectorAll('th[data-sort-key]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sortKey;
-      if (problemsState.sortKey === key) {
-        problemsState.sortDir = problemsState.sortDir === 'asc' ? 'desc' : 'asc';
-      } else {
-        problemsState.sortKey = key;
-        problemsState.sortDir = 'desc';
-      }
-      redrawProblemsTable();
-    });
-  });
+// ---------- ТОЧКА ВХОДА ----------
 
-  // Поиск: debounce не нужен — датасет умещается в память, фильтрация мгновенная.
-  document.getElementById('problem-search').addEventListener('input', e => {
-    problemsState.searchText = e.target.value.trim().toLowerCase();
-    redrawProblemsTable();
-  });
-
-  document.getElementById('problem-status-filter').addEventListener('change', e => {
-    problemsState.statusFilter = e.target.value;
-    redrawProblemsTable();
-  });
-
-  document.getElementById('problem-filters-reset').addEventListener('click', () => {
-    problemsState.searchText = '';
-    problemsState.statusFilter = 'all';
-    problemsState.sortKey = 'riskHours';
-    problemsState.sortDir = 'desc';
-    document.getElementById('problem-search').value = '';
-    document.getElementById('problem-status-filter').value = 'all';
-    redrawProblemsTable();
-  });
-}
-
-/** Точка входа для блока таблицы: принимает готовую аналитику один раз. */
-function renderProblemsTable(a) {
-  problemsState.all = a.problems; // сохраняем полный список для фильтров/сортировки
-  bindProblemsTableControls();    // обработчики вешаем один раз при первой отрисовке
-  redrawProblemsTable();          // и сразу рисуем таблицу в состоянии по умолчанию
-}
-
-/* ============================================================================
-   БЛОК 5. ТОЧКА ВХОДА
-   ============================================================================ */
-
-async function init() {
+async function init(){
+  const loadState = document.getElementById('loadState');
+  const loadStateText = document.getElementById('loadStateText');
   try {
-    const rows = await loadData();
-    const analytics = computeAnalytics(rows);
-
-    // Метаданные шапки
-    document.getElementById('meta-loaded-at').textContent = fmtDate(new Date());
-    document.getElementById('meta-rows').textContent = fmtInt(rows.length);
-
-    // Рендер всех блоков
-    renderHero(analytics);
-    renderKpiCards(analytics);
-    renderPulse(analytics);
-    renderTimelineChart(analytics);
-    renderStatusChart(analytics);
-    renderCitiesChart(analytics);
-    renderPickersChart(analytics);
-    renderChannelsChart(analytics);
-    renderStagesChart(analytics);
-    renderSizesChart(analytics);
-    renderProblemsTable(analytics);
-
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('dashboard').style.display = 'block';
-  } catch (err) {
+    const orders = await loadOrders();
+    if (!orders.length){
+      throw new Error('Файл orders.csv загружен, но не удалось распознать ни одной строки данных. Проверьте формат файла.');
+    }
+    buildDashboard(orders);
+    loadState.classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+  } catch (err){
     console.error(err);
-    document.getElementById('loading').style.display = 'none';
-    document.getElementById('error').style.display = 'block';
+    loadState.classList.add('error');
+    loadStateText.textContent = 'Не удалось построить дашборд';
+    const pre = document.createElement('pre');
+    pre.textContent = err.message || String(err);
+    loadState.appendChild(pre);
   }
 }
 
 init();
 </script>
+
 </body>
 </html>
