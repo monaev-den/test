@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Тепловая карта 09-07 22-53</title>
+    <title>Тепловая карта  09-07 23-00</title>
 
     <!-- ====== ВНЕШНИЕ БИБЛИОТЕКИ ====== -->
     <!-- Leaflet (карта) -->
@@ -302,6 +302,18 @@
             border-radius: 20px;
             font-size: 12px;
             color: #9aa4b8;
+        }
+        .error-box {
+            background: #2c1a1a;
+            border: 1px solid #e74c3c;
+            border-radius: 12px;
+            padding: 24px;
+            text-align: center;
+            color: #f0b3b3;
+            margin: 20px;
+        }
+        .error-box strong {
+            color: #ff6b6b;
         }
     </style>
 </head>
@@ -869,7 +881,7 @@
         const mapLoader = document.getElementById('mapLoader');
 
         // ================================================================
-        // 5.  ПАРСИНГ CSV
+        // 5.  ПАРСИНГ CSV (улучшенный)
         // ================================================================
         function parseCSV(csvText) {
             // Удаляем BOM если есть
@@ -878,19 +890,20 @@
             }
 
             const lines = csvText.split(/\r?\n/);
-            // Находим строку с заголовками: она содержит "Склад;Контрагент;Brand type;..."
+            // Находим строку с заголовками: ищем по ключевым словам
             let headerLineIndex = -1;
-            for (let i = 0; i < lines.length && i < 20; i++) {
+            for (let i = 0; i < lines.length && i < 30; i++) {
                 const line = lines[i];
-                if (line.includes('Склад;Контрагент;Brand type;Документ продажи;Способ получения заказа;Ответственный;По дням;По неделям;Сумма продажи в RUR;Количество (в ед. отчетов);Количество (в базовых единицах)') ||
-                    line.includes('Склад;Контрагент;Brand type;')) {
+                // Проверяем наличие обязательных колонок
+                if (line.includes('Склад') && line.includes('Контрагент') &&
+                    line.includes('Brand type') && line.includes('Сумма продажи в RUR')) {
                     headerLineIndex = i;
                     break;
                 }
             }
 
             if (headerLineIndex === -1) {
-                throw new Error('Не найден заголовок с колонками');
+                throw new Error('Не найден заголовок с колонками. Проверьте, что файл содержит строку с "Склад;Контрагент;Brand type;...;Сумма продажи в RUR".');
             }
 
             const headers = lines[headerLineIndex].split(';').map(h => h.trim());
@@ -911,7 +924,7 @@
 
             // Проверка обязательных колонок
             if (idx.warehouse === -1 || idx.counterparty === -1 || idx.revenue === -1) {
-                throw new Error('Обязательные колонки не найдены');
+                throw new Error('Обязательные колонки (Склад, Контрагент, Сумма продажи в RUR) не найдены.');
             }
 
             const data = [];
@@ -1544,7 +1557,7 @@
                 // Парсим
                 const data = parseCSV(csvText);
                 if (data.length === 0) {
-                    throw new Error('Нет данных для отображения');
+                    throw new Error('Не удалось извлечь данные из CSV. Проверьте формат файла.');
                 }
                 allData = data;
 
@@ -1568,12 +1581,16 @@
             } catch (err) {
                 console.error('Ошибка загрузки:', err);
                 document.getElementById('mapLoader').innerHTML = `
-                        <div style="color:#e74c3c; text-align:center; padding:20px;">
-                            <div style="font-size:24px; margin-bottom:10px;">⚠️</div>
-                            <div>Ошибка загрузки данных</div>
-                            <div style="font-size:13px; color:#6b7a90; margin-top:6px;">${err.message}</div>
-                            <div style="font-size:13px; color:#6b7a90; margin-top:12px;">
-                                Убедитесь, что файл <strong>1сsales.csv</strong> лежит в той же папке, что и index.html
+                        <div class="error-box">
+                            <div style="font-size:28px; margin-bottom:10px;">⚠️</div>
+                            <div><strong>Ошибка загрузки данных</strong></div>
+                            <div style="font-size:14px; margin-top:8px;">${err.message}</div>
+                            <div style="font-size:13px; color:#8892a8; margin-top:16px;">
+                                Убедитесь, что файл <strong>1сsales.csv</strong> лежит в той же папке, что и index.html,
+                                и что он содержит корректные заголовки колонок.
+                            </div>
+                            <div style="font-size:13px; color:#6b7a90; margin-top:8px;">
+                                Ожидаются колонки: Склад, Контрагент, Brand type, Сумма продажи в RUR и др.
                             </div>
                         </div>
                     `;
