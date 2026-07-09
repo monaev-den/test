@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Тепловая карта  09-07 23-23</title>
+    <title>Тепловая карта  09-07 23-39</title>
 
     <!-- ====== ВНЕШНИЕ БИБЛИОТЕКИ ====== -->
     <!-- Leaflet (карта) -->
@@ -800,51 +800,31 @@
         }
 
         /** Извлечение города из строки вида "Имя (Город г.)" */
-     
-function extractCity(counterparty) {
-    if (!counterparty) return null;
-
-    const match = counterparty.match(/\(([^)]+)\)/);
-    if (!match) return null;
-
-    let city = match[1]
-        .replace(/^г\.\s*/i, '')
-        .replace(/\s+г\.?\s*$/i, '')
-        .replace(/[.,]/g, '')
-        .trim();
-
-    city = city.replace(/\s+/g, ' ');
-
-    return city;
-}
-
+        function extractCity(counterparty) {
+            if (!counterparty) return null;
+            const match = counterparty.match(/\(([^)]+)\)/);
+            if (!match) return null;
+            let city = match[1]
+                .replace(/г\.?$/i, '')
+                .replace(/[.,]/g, '')
+                .trim();
+            // Убираем лишние пробелы
+            city = city.replace(/\s+/g, ' ');
+            return city;
+        }
 
         /** Получение координат города с fallback */
-     function getCityCoords(cityName) {
-    if (!cityName) return null;
-
-    const key = normalize(cityName)
-        .replace(/^г\s+/i, '')
-        .replace(/\s+г$/i, '')
-        .trim();
-
-    if (CITY_COORDS[key]) {
-        return CITY_COORDS[key];
-    }
-
-    for (const [k, v] of Object.entries(CITY_COORDS)) {
-        if (
-            key.includes(k) ||
-            k.includes(key)
-        ) {
-            return v;
+        function getCityCoords(cityName) {
+            if (!cityName) return null;
+            const key = normalize(cityName);
+            // Прямое совпадение
+            if (CITY_COORDS[key]) return CITY_COORDS[key];
+            // Поиск частичного совпадения
+            for (const [k, v] of Object.entries(CITY_COORDS)) {
+                if (key.includes(k) || k.includes(key)) return v;
+            }
+            return null;
         }
-    }
-
-    console.warn('Не найдены координаты:', cityName);
-
-    return null;
-}
 
         /** Получение координат склада */
         function getWarehouseCoords(warehouse) {
@@ -906,52 +886,13 @@ function extractCity(counterparty) {
         // ================================================================
         // 5.  ПАРСИНГ CSV (улучшенный)
         // ================================================================
-  //      function parseCSV(csvText) {
+        function parseCSV(csvText) {
             // Удаляем BOM если есть
- //           if (csvText.charCodeAt(0) === 0xFEFF) {
-   //             csvText = csvText.slice(1);
-     //       }
+            if (csvText.charCodeAt(0) === 0xFEFF) {
+                csvText = csvText.slice(1);
+            }
 
-function parseCSV(csvText) {
-
-    const result = Papa.parse(csvText, {
-        header: true,
-        delimiter: ';',
-        skipEmptyLines: true,
-        transformHeader: h => h.trim()
-    });
-
-    const data = [];
-
-    result.data.forEach(row => {
-
-        const revenue =
-            parseFloat(
-                String(row['Сумма продажи в RUR'] || '0')
-                    .replace(/\s/g, '')
-                    .replace(',', '.')
-            ) || 0;
-
-        const city = extractCity(
-            row['Контрагент']
-        );
-
-        if (!city || revenue <= 0) {
-            return;
-        }
-
-        data.push({
-            warehouse: row['Склад'],
-            counterparty: row['Контрагент'],
-            city,
-            brand: row['Brand type'] || 'Не указан',
-            method: row['Способ получения заказа'] || 'Не указан',
-            week: row['По неделям'] || 'Неизвестная неделя',
-            revenue
-        });
-    });
-
-    const lines = csvText.split(/\r?\n/);
+            const lines = csvText.split(/\r?\n/);
             // Находим строку с заголовками: ищем по ключевым словам
             let headerLineIndex = -1;
             for (let i = 0; i < lines.length && i < 30; i++) {
@@ -1023,13 +964,8 @@ function parseCSV(csvText) {
                 });
             }
 
-
-    
-    return data;
-}
-        
-         //           return data;
-   //     }
+            return data;
+        }
 
         // ================================================================
         // 6.  АГРЕГАЦИЯ ДАННЫХ
