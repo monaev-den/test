@@ -1,0 +1,1595 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OTIF 08-07 20-39 </title>
+
+<!-- Chart.js подключаем с CDN для построения графиков -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+
+<style>
+/* ==========================================================================
+   ДИЗАЙН-ТОКЕНЫ
+   Тема: "Диспетчерская склада / пункт управления логистикой".
+   Тёмная приборная панель, как экран диспетчера крупного РЦ: холодный
+   графитовый фон, светящиеся индикаторы состояния (зелёный/янтарный/красный
+   светофор OTIF), моноширинный шрифт для чисел (ощущение "живых данных"),
+   и один яркий акцент — сигнальный янтарный — используемый только для
+   критичных отклонений, чтобы взгляд руководителя сразу цеплялся за проблему.
+   ========================================================================== */
+:root{
+  --bg:            #0b0f14;   /* фон приборной панели */
+  --panel:         #121821;   /* карточки */
+  --panel-2:       #171f2b;   /* чуть светлее панели, для вложенных блоков */
+  --line:          #232c3a;   /* тонкие разделители */
+  --text:          #e7ecf3;   /* основной текст */
+  --text-dim:      #8b97a8;   /* второстепенный текст */
+  --text-faint:    #5b6576;   /* совсем тихий текст */
+
+  --good:          #35d399;   /* норма / выполнено вовремя, полностью */
+  --good-dim:      #17352c;
+  --warn:          #f5a524;   /* предупреждение / сигнальный акцент */
+  --warn-dim:      #3a2c10;
+  --bad:           #f2495c;   /* критично / просрочено */
+  --bad-dim:       #3a1620;
+  --accent:        #4ea1ff;   /* нейтральный информационный акцент (доставка) */
+  --accent-dim:    #142235;
+
+  --font-display:  'Zilla Slab', 'Georgia', serif;
+  --font-body:     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:     'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+
+  --radius: 10px;
+  --radius-sm: 6px;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+body{
+  background: radial-gradient(ellipse 1200px 600px at 50% -10%, #14202f 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: 'Inter', var(--font-body);
+  min-height: 100vh;
+  padding: 20px 24px 48px;
+}
+
+/* ---------------------------- Верхняя шапка ---------------------------- */
+.header{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:24px;
+  margin-bottom:20px;
+  padding-bottom:16px;
+  border-bottom:1px solid var(--line);
+  flex-wrap:wrap;
+}
+.header-left .eyebrow{
+  font-family: var(--font-mono);
+  font-size:11px;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:6px;
+  display:flex; align-items:center; gap:8px;
+}
+.pulse-dot{
+  width:7px; height:7px; border-radius:50%;
+  background:var(--good);
+  box-shadow:0 0 0 0 rgba(53,211,153,.6);
+  animation:pulse 2s infinite;
+}
+@keyframes pulse{
+  0%{ box-shadow:0 0 0 0 rgba(53,211,153,.55); }
+  70%{ box-shadow:0 0 0 8px rgba(53,211,153,0); }
+  100%{ box-shadow:0 0 0 0 rgba(53,211,153,0); }
+}
+.header-left h1{
+  font-family: var(--font-display);
+  font-weight:600;
+  font-size:30px;
+  letter-spacing:-.01em;
+}
+.header-left .subtitle{
+  color:var(--text-dim);
+  font-size:13.5px;
+  margin-top:4px;
+}
+.header-right{
+  display:flex; gap:10px; align-items:center;
+  font-family: var(--font-mono);
+  font-size:12px;
+  color:var(--text-dim);
+}
+.status-chip{
+  display:flex; align-items:center; gap:6px;
+  background:var(--panel);
+  border:1px solid var(--line);
+  padding:7px 12px;
+  border-radius:20px;
+}
+.status-chip b{ color:var(--text); font-weight:600; }
+
+/* ------------------------------ Загрузка -------------------------------- */
+#loadingState, #errorState{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:14px;
+  min-height:50vh;
+  color:var(--text-dim);
+  font-family: var(--font-mono);
+  font-size:13px;
+  text-align:center;
+}
+#errorState{ display:none; color:var(--bad); }
+.spinner{
+  width:34px; height:34px;
+  border-radius:50%;
+  border:3px solid var(--line);
+  border-top-color:var(--accent);
+  animation:spin 0.9s linear infinite;
+}
+@keyframes spin{ to{ transform:rotate(360deg); } }
+
+#dashboard{ display:none; }
+
+/* ------------------------------ Фильтры --------------------------------- */
+.filters{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  margin-bottom:18px;
+  display:flex;
+  flex-wrap:wrap;
+  gap:14px;
+  align-items:flex-end;
+}
+.filter-group{
+  display:flex; flex-direction:column; gap:5px;
+  min-width:150px;
+}
+.filter-group label{
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:var(--text-faint);
+  font-family: var(--font-mono);
+}
+.filter-group select, .filter-group input{
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--text);
+  padding:8px 10px;
+  border-radius:var(--radius-sm);
+  font-size:13px;
+  font-family:inherit;
+  min-width:170px;
+  outline:none;
+  transition:border-color .15s;
+}
+.filter-group select:focus, .filter-group input:focus{ border-color:var(--accent); }
+.filter-group select[multiple]{
+  min-height:64px;
+}
+.filter-actions{
+  display:flex; gap:8px; margin-left:auto;
+}
+.btn{
+  background:var(--panel-2);
+  border:1px solid var(--line);
+  color:var(--text-dim);
+  padding:9px 16px;
+  border-radius:var(--radius-sm);
+  font-size:12.5px;
+  font-weight:600;
+  cursor:pointer;
+  transition:all .15s;
+  font-family:inherit;
+}
+.btn:hover{ border-color:var(--accent); color:var(--text); }
+.btn.primary{
+  background:var(--accent-dim);
+  border-color:#1f4468;
+  color:var(--accent);
+}
+.btn.primary:hover{ background:#1a2f47; }
+.active-filters{
+  width:100%;
+  display:flex; flex-wrap:wrap; gap:6px;
+  margin-top:2px;
+}
+.filter-tag{
+  font-family:var(--font-mono);
+  font-size:11px;
+  background:var(--accent-dim);
+  color:var(--accent);
+  border:1px solid #1f4468;
+  padding:3px 9px;
+  border-radius:20px;
+}
+
+/* ------------------------------ KPI карточки ----------------------------- */
+.kpi-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));
+  gap:14px;
+  margin-bottom:18px;
+}
+.kpi-card{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  position:relative;
+  overflow:hidden;
+}
+.kpi-card.hero{
+  grid-column: span 2;
+  background:linear-gradient(135deg, var(--panel) 0%, var(--panel-2) 100%);
+}
+.kpi-card::before{
+  content:'';
+  position:absolute; top:0; left:0; width:3px; height:100%;
+  background:var(--line);
+}
+.kpi-card.state-good::before{ background:var(--good); }
+.kpi-card.state-warn::before{ background:var(--warn); }
+.kpi-card.state-bad::before{ background:var(--bad); }
+
+.kpi-label{
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  color:var(--text-faint);
+  margin-bottom:10px;
+  display:flex; justify-content:space-between; align-items:center;
+}
+.kpi-value{
+  font-family:var(--font-mono);
+  font-size:36px;
+  font-weight:700;
+  line-height:1;
+  letter-spacing:-.02em;
+}
+.kpi-card.hero .kpi-value{ font-size:52px; }
+.kpi-value .unit{ font-size:.5em; color:var(--text-dim); font-weight:500; margin-left:4px; }
+.kpi-sub{
+  margin-top:8px;
+  font-size:12px;
+  color:var(--text-dim);
+  display:flex; gap:10px; flex-wrap:wrap;
+}
+.kpi-sub .delta-up{ color:var(--good); }
+.kpi-sub .delta-down{ color:var(--bad); }
+.kpi-target{
+  font-size:11px;
+  color:var(--text-faint);
+  margin-top:4px;
+  font-family:var(--font-mono);
+}
+.mini-bar{
+  height:6px;
+  background:var(--panel-2);
+  border-radius:4px;
+  margin-top:10px;
+  overflow:hidden;
+}
+.mini-bar-fill{ height:100%; border-radius:4px; transition:width .4s; }
+
+/* ------------------------------ Панели графиков --------------------------- */
+.grid{
+  display:grid;
+  grid-template-columns:repeat(12, 1fr);
+  gap:14px;
+  margin-bottom:14px;
+}
+.panel{
+  background:var(--panel);
+  border:1px solid var(--line);
+  border-radius:var(--radius);
+  padding:16px 18px 12px;
+  display:flex;
+  flex-direction:column;
+}
+.panel-title{
+  font-size:13.5px;
+  font-weight:600;
+  display:flex; justify-content:space-between; align-items:baseline;
+  margin-bottom:2px;
+}
+.panel-title .hint{
+  font-size:10.5px;
+  color:var(--text-faint);
+  font-weight:400;
+  font-family:var(--font-mono);
+}
+.panel-desc{
+  font-size:11.5px;
+  color:var(--text-faint);
+  margin-bottom:10px;
+}
+.panel-body{ flex:1; position:relative; min-height:220px; }
+
+.span-4{ grid-column:span 4; }
+.span-5{ grid-column:span 5; }
+.span-6{ grid-column:span 6; }
+.span-7{ grid-column:span 7; }
+.span-8{ grid-column:span 8; }
+.span-12{ grid-column:span 12; }
+
+@media (max-width: 1100px){
+  .span-4, .span-5, .span-6, .span-7, .span-8{ grid-column: span 12; }
+  .kpi-card.hero{ grid-column: span 2; }
+}
+@media (max-width: 640px){
+  .kpi-card.hero{ grid-column: span 1; }
+}
+
+/* ------------------------------ Таблица проблем --------------------------- */
+.table-wrap{ overflow-x:auto; }
+table.problems{
+  width:100%;
+  border-collapse:collapse;
+  font-size:12.5px;
+}
+table.problems th{
+  text-align:left;
+  font-family:var(--font-mono);
+  font-size:10.5px;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--text-faint);
+  padding:8px 10px;
+  border-bottom:1px solid var(--line);
+  white-space:nowrap;
+  cursor:pointer;
+  user-select:none;
+}
+table.problems th:hover{ color:var(--text-dim); }
+table.problems td{
+  padding:8px 10px;
+  border-bottom:1px solid var(--line);
+  white-space:nowrap;
+}
+table.problems tbody tr:hover{ background:var(--panel-2); }
+.badge{
+  display:inline-block;
+  padding:2px 8px;
+  border-radius:10px;
+  font-size:11px;
+  font-weight:600;
+  font-family:var(--font-mono);
+}
+.badge.bad{ background:var(--bad-dim); color:var(--bad); }
+.badge.good{ background:var(--good-dim); color:var(--good); }
+.badge.warn{ background:var(--warn-dim); color:var(--warn); }
+
+.legend-row{
+  display:flex; gap:16px; flex-wrap:wrap;
+  font-size:11.5px; color:var(--text-dim);
+  margin-top:8px;
+}
+.legend-row span{ display:flex; align-items:center; gap:5px; }
+.legend-dot{ width:8px; height:8px; border-radius:2px; display:inline-block; }
+
+footer{
+  text-align:center;
+  color:var(--text-faint);
+  font-family:var(--font-mono);
+  font-size:11px;
+  margin-top:24px;
+  padding-top:16px;
+  border-top:1px solid var(--line);
+}
+
+/* Скроллбар в духе панели */
+::-webkit-scrollbar{ height:8px; width:8px; }
+::-webkit-scrollbar-track{ background:var(--panel-2); }
+::-webkit-scrollbar-thumb{ background:var(--line); border-radius:4px; }
+</style>
+</head>
+<body>
+
+<!-- =========================== ЭКРАН ЗАГРУЗКИ =========================== -->
+<div id="loadingState">
+  <div class="spinner"></div>
+  <div>Читаю otif.csv и собираю показатели…</div>
+</div>
+
+<!-- =========================== ЭКРАН ОШИБКИ =========================== -->
+<div id="errorState">
+  <div style="font-size:28px;">⚠</div>
+  <div id="errorText">Не удалось загрузить otif.csv</div>
+  <div style="color:var(--text-faint); font-size:11.5px; max-width:480px;">
+    Убедитесь, что файл otif.csv лежит в той же папке, что и index.html,
+    и что страница открыта через локальный веб-сервер (например,
+    <code>python -m http.server</code>), а не двойным щелчком по файлу —
+    браузеры блокируют чтение локальных файлов через file://.
+  </div>
+</div>
+
+<!-- =========================== ДАШБОРД =========================== -->
+<div id="dashboard">
+
+  <div class="header">
+    <div class="header-left">
+      <div class="eyebrow"><span class="pulse-dot"></span> Диспетчерская логистики · Онлайн</div>
+      <h1>Пульс склада — OTIF / отгрузка</h1>
+      <div class="subtitle" id="subtitleText">—</div>
+    </div>
+    <div class="header-right">
+      <div class="status-chip">Строк в выборке: <b id="chipRows">0</b></div>
+      <div class="status-chip">Складов: <b id="chipWh">0</b></div>
+      <div class="status-chip">Обновлено: <b id="chipTime">—</b></div>
+    </div>
+  </div>
+
+  <!-- ---------------------------- ФИЛЬТРЫ ---------------------------- -->
+  <div class="filters">
+    <div class="filter-group">
+      <label>Дата заказа / статуса — от</label>
+      <input type="date" id="fDateFrom">
+    </div>
+    <div class="filter-group">
+      <label>Дата заказа / статуса — до</label>
+      <input type="date" id="fDateTo">
+    </div>
+    <div class="filter-group">
+      <label>Склад отгрузки</label>
+      <select id="fWarehouse" multiple></select>
+    </div>
+    <div class="filter-group">
+      <label>Город доставки</label>
+      <select id="fCity" multiple></select>
+    </div>
+    <div class="filter-group">
+      <label>Способ доставки</label>
+      <select id="fDeliveryMethod" multiple></select>
+    </div>
+    <div class="filter-group">
+      <label>Транспортная компания</label>
+      <select id="fCarrier" multiple></select>
+    </div>
+    <div class="filter-group">
+      <label>Сервис доставки</label>
+      <select id="fService" multiple></select>
+    </div>
+    <div class="filter-actions">
+      <button class="btn" id="btnReset">Сбросить фильтры</button>
+      <button class="btn primary" id="btnApply">Применить</button>
+    </div>
+    <div class="active-filters" id="activeFilters"></div>
+  </div>
+
+  <!-- ---------------------------- KPI ---------------------------- -->
+  <div class="kpi-grid" id="kpiGrid"></div>
+
+  <!-- ---------------------------- РЯД 1: динамика ---------------------------- -->
+  <div class="grid">
+    <div class="panel span-8">
+      <div class="panel-title">Динамика OTIF по дням <span class="hint">план vs факт, %</span></div>
+      <div class="panel-desc">Доля заказов, отгруженных вовремя и в полном объёме, по дате статуса «к сборке»</div>
+      <div class="panel-body"><canvas id="chartOtifTrend"></canvas></div>
+    </div>
+    <div class="panel span-4">
+      <div class="panel-title">Разбор невыполнения OTIF</div>
+      <div class="panel-desc">Из чего складывается «Нет» по OTIF в выборке</div>
+      <div class="panel-body"><canvas id="chartOtifBreakdown"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ---------------------------- РЯД 2: склады ---------------------------- -->
+  <div class="grid">
+    <div class="panel span-7">
+      <div class="panel-title">OTIF по складам отгрузки <span class="hint">сортировка по объёму</span></div>
+      <div class="panel-desc">Красная линия — целевой уровень сервиса 95%</div>
+      <div class="panel-body" style="min-height:320px;"><canvas id="chartWhOtif"></canvas></div>
+    </div>
+    <div class="panel span-5">
+      <div class="panel-title">Своевременность отгрузки vs доставки</div>
+      <div class="panel-desc">Где именно возникают задержки — на складе или в пути</div>
+      <div class="panel-body"><canvas id="chartShipVsDeliver"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ---------------------------- РЯД 3: структура ---------------------------- -->
+  <div class="grid">
+    <div class="panel span-4">
+      <div class="panel-title">Способ доставки</div>
+      <div class="panel-desc">Доля заказов и их OTIF</div>
+      <div class="panel-body"><canvas id="chartDeliveryMethod"></canvas></div>
+    </div>
+    <div class="panel span-4">
+      <div class="panel-title">Топ-10 транспортных компаний</div>
+      <div class="panel-desc">По количеству отгрузок, цвет — уровень OTIF</div>
+      <div class="panel-body"><canvas id="chartCarriers"></canvas></div>
+    </div>
+    <div class="panel span-4">
+      <div class="panel-title">Backorder (недопоставка позиций)</div>
+      <div class="panel-desc">Доля заказов с отсутствующими позициями</div>
+      <div class="panel-body"><canvas id="chartBackorder"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ---------------------------- РЯД 4: города + сроки ---------------------------- -->
+  <div class="grid">
+    <div class="panel span-6">
+      <div class="panel-title">Топ-15 городов доставки по проблемности</div>
+      <div class="panel-desc">Города с наибольшим числом заказов вне OTIF</div>
+      <div class="panel-body" style="min-height:320px;"><canvas id="chartCities"></canvas></div>
+    </div>
+    <div class="panel span-6">
+      <div class="panel-title">Плановый срок доставки: план vs факт (рабочие дни)</div>
+      <div class="panel-desc">Распределение заказов по длительности цикла доставки</div>
+      <div class="panel-body" style="min-height:320px;"><canvas id="chartLeadTime"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ---------------------------- РЯД 5: сервисы + сумма ---------------------------- -->
+  <div class="grid">
+    <div class="panel span-6">
+      <div class="panel-title">Уровень сервиса доставки</div>
+      <div class="panel-desc">Тип условий отгрузки и их влияние на OTIF</div>
+      <div class="panel-body" style="min-height:260px;"><canvas id="chartServiceLevel"></canvas></div>
+    </div>
+    <div class="panel span-6">
+      <div class="panel-title">Сумма реализации: выполнено OTIF vs нет</div>
+      <div class="panel-desc">Финансовый вес проблемных отгрузок по дням</div>
+      <div class="panel-body" style="min-height:260px;"><canvas id="chartRevenueOtif"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ---------------------------- РЯД 6: проблемные заказы ---------------------------- -->
+  <div class="panel span-12" style="margin-bottom:14px;">
+    <div class="panel-title">Проблемные заказы <span class="hint" id="problemsCount"></span></div>
+    <div class="panel-desc">Заказы с OTIF = «Нет» в текущей выборке — отсортированы по сумме реализации. Клик по заголовку — сортировка.</div>
+    <div class="table-wrap">
+      <table class="problems" id="problemsTable">
+        <thead>
+          <tr>
+            <th data-key="wh">Склад</th>
+            <th data-key="order">Заказ</th>
+            <th data-key="contractor">Контрагент</th>
+            <th data-key="city">Город</th>
+            <th data-key="planShip">План отгрузки</th>
+            <th data-key="factShip">Факт отгрузки</th>
+            <th data-key="shipOk">Отгрузка вовремя</th>
+            <th data-key="deliverOk">Доставка вовремя</th>
+            <th data-key="bo">Backorder</th>
+            <th data-key="sum">Сумма, ₽</th>
+          </tr>
+        </thead>
+        <tbody id="problemsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <footer>
+    OTIF-дашборд · данные читаются из локального otif.csv при каждом открытии страницы · ничего не отправляется на сервер
+  </footer>
+
+</div>
+
+<script>
+/* ============================================================================
+   ДАШБОРД OTIF ДЛЯ СЕТИ СКЛАДОВ
+   ----------------------------------------------------------------------------
+   Общая логика работы файла:
+   1. При загрузке страницы делаем fetch('otif.csv') — файл должен лежать
+      рядом с index.html (тот же каталог), сервер должен отдавать статику
+      (fetch не работает при открытии страницы напрямую через file://).
+   2. Разбираем "сырой" CSV: у файла нестандартная шапка отчёта 1С —
+      несколько строк метаинформации перед настоящей строкой заголовков
+      таблицы. Мы ищем строку заголовков по сигнатуре первой колонки
+      ("Склад отгрузки"), а всё что выше — отбрасываем.
+   3. Приводим каждую строку к типизированному JS-объекту (даты → Date,
+      суммы → number, "Да"/"Нет" → boolean) — это наша "единая модель данных".
+   4. Строим списки уникальных значений для фильтров (склад, город, способ
+      доставки, перевозчик, сервис) и диапазон дат.
+   5. По событию "Применить"/изменению фильтров пересчитываем агрегаты
+      (applyFilters → recomputeAndRender) и перерисовываем все KPI/графики.
+   6. Графики рисуются через Chart.js, каждый график создаётся один раз
+      и далее переиспользуется через chart.data = ... ; chart.update().
+   ============================================================================ */
+
+// ---------------------------------------------------------------------------
+// 0. ГЛОБАЛЬНОЕ СОСТОЯНИЕ ПРИЛОЖЕНИЯ
+// ---------------------------------------------------------------------------
+const state = {
+  rawRows: [],       // все строки после парсинга и типизации (неизменяемый источник правды)
+  filteredRows: [],  // строки после применения текущих фильтров
+  charts: {},        // ссылки на созданные Chart.js инстансы, чтобы их обновлять, а не пересоздавать
+  sort: { key: 'sum', dir: 'desc' } // текущая сортировка таблицы проблемных заказов
+};
+
+// Единая цветовая палитра для использования в графиках (совпадает с CSS-токенами)
+const COLORS = {
+  good: '#35d399',
+  warn: '#f5a524',
+  bad:  '#f2495c',
+  accent: '#4ea1ff',
+  accent2: '#9d7cf2',
+  text: '#8b97a8',
+  grid: '#232c3a',
+  panel: '#171f2b'
+};
+// Набор цветов для категориальных графиков (склады, перевозчики и т.п.)
+const PALETTE = ['#4ea1ff', '#35d399', '#f5a524', '#f2495c', '#9d7cf2', '#4dd0e1', '#e07be0', '#c9d15a', '#ff8a65', '#7986cb'];
+
+// Общие настройки Chart.js, чтобы не дублировать в каждом графике
+Chart.defaults.color = COLORS.text;
+Chart.defaults.font.family = "'Inter', sans-serif";
+Chart.defaults.font.size = 11;
+Chart.defaults.borderColor = COLORS.grid;
+
+// ---------------------------------------------------------------------------
+// 1. ЗАГРУЗКА И РАЗБОР CSV
+// ---------------------------------------------------------------------------
+
+/**
+ * Точка входа: скачивает otif.csv, парсит и запускает первичный рендер.
+ */
+async function init() {
+  try {
+    const resp = await fetch('otif.csv');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    // Файл сохранён в кодировке UTF-8 с BOM — читаем как ArrayBuffer и
+    // декодируем вручную, чтобы корректно убрать BOM-маркер.
+    const buf = await resp.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buf);
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1); // срезаем BOM
+
+    const rows = parseOtifCsv(text);
+    if (!rows.length) throw new Error('В файле не найдено ни одной строки данных');
+
+    state.rawRows = rows;
+    buildFilterOptions(rows);
+    setDefaultDateRange(rows);
+
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('dashboard').style.display = 'block';
+
+    applyFilters(); // первичный расчёт и отрисовка со всеми данными
+  } catch (err) {
+    console.error(err);
+    document.getElementById('loadingState').style.display = 'none';
+    document.getElementById('errorState').style.display = 'flex';
+    document.getElementById('errorText').textContent =
+      'Не удалось загрузить otif.csv: ' + err.message;
+  }
+}
+
+/**
+ * Разбирает "сырой" текст CSV-отчёта 1С в массив типизированных объектов-заказов.
+ *
+ * Особенности исходного файла:
+ *  - разделитель полей: ";"
+ *  - первые ~20 строк — служебная шапка отчёта (название, период, список
+ *    показателей, сортировка) — не является табличными данными;
+ *  - строка с настоящими заголовками таблицы начинается с "Склад отгрузки";
+ *  - далее идут собственно строки заказов, по одной строке на позицию заказа;
+ *  - числа используют пробел как разделитель тысяч и запятую как десятичный
+ *    разделитель (русская локаль), например "3 606" или "1 234,50";
+ *  - даты в формате "ДД.ММ.ГГГГ" или "ДД.ММ.ГГГГ ЧЧ:ММ:СС".
+ */
+function parseOtifCsv(text) {
+  // Разбиваем на строки, поддерживая и \r\n, и \n
+  const lines = text.split(/\r\n|\n/);
+
+  // Находим индекс строки с настоящими заголовками таблицы
+  const headerIdx = lines.findIndex(l => l.startsWith('Склад отгрузки;'));
+  if (headerIdx === -1) {
+    throw new Error('Не найдена строка заголовков ("Склад отгрузки;...") — формат файла отличается от ожидаемого');
+  }
+
+  const header = splitCsvLine(lines[headerIdx]);
+  const colIndex = {}; // название колонки -> индекс, чтобы не завязываться на порядок
+  header.forEach((name, i) => { colIndex[name.trim()] = i; });
+
+  const idx = (name) => colIndex[name];
+
+  const dataLines = lines.slice(headerIdx + 1).filter(l => l.trim().length > 0);
+
+  const rows = [];
+  for (const line of dataLines) {
+    const cols = splitCsvLine(line);
+    // Пропускаем откровенно пустые/битые строки (меньше колонок, чем в шапке)
+    if (cols.length < 25) continue;
+    const warehouse = cols[idx('Склад отгрузки')];
+    if (!warehouse || !warehouse.trim()) continue; // строка-заглушка/пустая группа
+
+    const orderStatusDate = parseRuDate(cols[idx('Дата статуса заказа «К сборке»')]);
+    const planShipDate    = parseRuDate(cols[idx('Плановая дата отгрузки')]);
+    const factShipDate    = parseRuDate(cols[idx('Фактическая дата отгрузки')]);
+    const planDeliverDate = parseRuDate(cols[idx('Плановая дата доставки')]);
+    const factDeliverDate = parseRuDate(cols[idx('Фактическая дата доставки')]);
+
+    rows.push({
+      warehouse:        warehouse.trim(),
+      contractorCode:    cols[idx('Код контрагента')],
+      contractor:        cols[idx('Контрагент')],
+      city:              (cols[idx('Город доставки')] || '').trim() || '(город не указан)',
+      address:           cols[idx('Адрес доставки')],
+      orderNumber:       cols[idx('Заказ покупателя')],
+      deliveryMethod:    (cols[idx('Способ доставки')] || '').trim() || '(не указано)',
+      carrier:           (cols[idx('Транспортная компания')] || '').trim() || '(не указано)',
+      serviceLevel:      (cols[idx('Сервис доставки')] || '').trim() || '(не указано)',
+
+      // Ключевая дата для временнОй динамики — дата перехода в статус "к сборке"
+      statusDate:        orderStatusDate,
+      planShipDate:       planShipDate,
+      factShipDate:       factShipDate,
+      planDeliverDate:    planDeliverDate,
+      factDeliverDate:    factDeliverDate,
+
+      planDeliverDays:   toNumber(cols[idx('Планируемый срок доставки (рабочие дни)')]),
+      factDeliverDays:   toNumber(cols[idx('Фактический срок доставки (рабочие дни)')]),
+      assemblyDays:      toNumber(cols[idx('Сборка (рабочие дни)')]),
+
+      shipOnTime:        cols[idx('Своевременность отгрузки')] === 'Да',
+      deliverOnTime:     cols[idx('Своевременность доставки')] === 'Да',
+      noBackorder:       cols[idx('Отсутствует Backorder в заказе')] === 'Да',
+      otif:              cols[idx('OTIF')] === 'Да',
+
+      revenue:           toNumber(cols[idx('Сумма реализации')]),
+      linesOk:           toNumber(cols[idx('OTIF WH Lines OK')]),
+      linesNok:          toNumber(cols[idx('OTIF WH Lines NOK')]),
+      boCountLines:      toNumber(cols[idx('BO count lines')]),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Разбивает одну строку CSV на массив значений с учётом полей в кавычках
+ * (внутри которых может встречаться разделитель ";" или переносы строк —
+ * в этом отчёте многострочные поля в кавычках нам не встречаются в
+ * табличной части, но парсер устойчив и к ним на всякий случай).
+ */
+function splitCsvLine(line) {
+  const result = [];
+  let cur = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      // Двойная кавычка внутри кавычек — экранированная кавычка
+      if (inQuotes && line[i + 1] === '"') { cur += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === ';' && !inQuotes) {
+      result.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  result.push(cur);
+  return result;
+}
+
+/** Парсит дату вида "ДД.ММ.ГГГГ" или "ДД.ММ.ГГГГ ЧЧ:ММ:СС" -> Date | null */
+function parseRuDate(str) {
+  if (!str) return null;
+  str = str.trim();
+  if (!str) return null;
+  const datePart = str.split(' ')[0];
+  const m = datePart.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy] = m;
+  return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+}
+
+/** Парсит число в русской локали ("3 606", "1 234,50") -> number | null */
+function toNumber(str) {
+  if (str === undefined || str === null) return null;
+  str = String(str).trim();
+  if (!str) return null;
+  // убираем обычные и неразрывные пробелы (разделители тысяч), меняем запятую на точку
+  const cleaned = str.replace(/[\s\u00A0]/g, '').replace(',', '.');
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
+
+/** Форматирует Date -> "ДД.ММ.ГГГГ" для отображения в таблице */
+function fmtDate(d) {
+  if (!d) return '—';
+  return d.toLocaleDateString('ru-RU');
+}
+
+/** Форматирует число как рубли с разделителями разрядов */
+function fmtMoney(n) {
+  if (n === null || n === undefined) return '—';
+  return new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 }).format(n);
+}
+
+/** Форматирует долю (0..1) в проценты с одним знаком после запятой */
+function fmtPct(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return (n * 100).toFixed(1) + '%';
+}
+
+// ---------------------------------------------------------------------------
+// 2. ФИЛЬТРЫ: построение опций, чтение и применение
+// ---------------------------------------------------------------------------
+
+/** Заполняет multi-select'ы уникальными значениями, отсортированными по частоте встречаемости */
+function buildFilterOptions(rows) {
+  fillSelect('fWarehouse', countBy(rows, r => r.warehouse));
+  fillSelect('fCity', countBy(rows, r => r.city), 40); // городов много — ограничиваем топ-40 по объёму
+  fillSelect('fDeliveryMethod', countBy(rows, r => r.deliveryMethod));
+  fillSelect('fCarrier', countBy(rows, r => r.carrier));
+  fillSelect('fService', countBy(rows, r => r.serviceLevel));
+}
+
+/** Считает частоту значений по ключевой функции, возвращает Map отсортированную по убыванию частоты */
+function countBy(rows, keyFn) {
+  const map = new Map();
+  for (const r of rows) {
+    const k = keyFn(r);
+    map.set(k, (map.get(k) || 0) + 1);
+  }
+  return new Map([...map.entries()].sort((a, b) => b[1] - a[1]));
+}
+
+/** Заполняет <select multiple> опциями "значение (count)" */
+function fillSelect(elId, countMap, limit) {
+  const el = document.getElementById(elId);
+  el.innerHTML = '';
+  let entries = [...countMap.entries()];
+  if (limit) entries = entries.slice(0, limit);
+  for (const [value, count] of entries) {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = `${value} (${count})`;
+    el.appendChild(opt);
+  }
+}
+
+/** Устанавливает начальный диапазон дат в фильтре = min/max дата статуса в данных */
+function setDefaultDateRange(rows) {
+  const dates = rows.map(r => r.statusDate).filter(Boolean);
+  if (!dates.length) return;
+  const min = new Date(Math.min(...dates));
+  const max = new Date(Math.max(...dates));
+  document.getElementById('fDateFrom').value = toInputDate(min);
+  document.getElementById('fDateTo').value = toInputDate(max);
+}
+function toInputDate(d) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/** Считывает текущее состояние всех фильтров из DOM */
+function readFilters() {
+  const getMulti = id => [...document.getElementById(id).selectedOptions].map(o => o.value);
+  return {
+    dateFrom: document.getElementById('fDateFrom').value ? new Date(document.getElementById('fDateFrom').value) : null,
+    dateTo:   document.getElementById('fDateTo').value ? new Date(document.getElementById('fDateTo').value) : null,
+    warehouses: getMulti('fWarehouse'),
+    cities: getMulti('fCity'),
+    deliveryMethods: getMulti('fDeliveryMethod'),
+    carriers: getMulti('fCarrier'),
+    services: getMulti('fService'),
+  };
+}
+
+/** Применяет фильтры к rawRows -> filteredRows и запускает полный перерасчёт/рендер */
+function applyFilters() {
+  const f = readFilters();
+  state.filteredRows = state.rawRows.filter(r => {
+    if (f.dateFrom && r.statusDate && r.statusDate < f.dateFrom) return false;
+    if (f.dateTo) {
+      // включаем весь день "до"
+      const end = new Date(f.dateTo); end.setHours(23, 59, 59, 999);
+      if (r.statusDate && r.statusDate > end) return false;
+    }
+    if (f.warehouses.length && !f.warehouses.includes(r.warehouse)) return false;
+    if (f.cities.length && !f.cities.includes(r.city)) return false;
+    if (f.deliveryMethods.length && !f.deliveryMethods.includes(r.deliveryMethod)) return false;
+    if (f.carriers.length && !f.carriers.includes(r.carrier)) return false;
+    if (f.services.length && !f.services.includes(r.serviceLevel)) return false;
+    return true;
+  });
+
+  renderActiveFilterTags(f);
+  recomputeAndRender();
+}
+
+/** Отображает "чипы" активных фильтров под панелью фильтров, чтобы руководитель видел контекст выборки */
+function renderActiveFilterTags(f) {
+  const wrap = document.getElementById('activeFilters');
+  wrap.innerHTML = '';
+  const tags = [];
+  if (f.dateFrom || f.dateTo) {
+    tags.push(`Период: ${f.dateFrom ? fmtDate(f.dateFrom) : '…'} — ${f.dateTo ? fmtDate(f.dateTo) : '…'}`);
+  }
+  const addGroup = (label, arr) => { if (arr.length) tags.push(`${label}: ${arr.length === 1 ? arr[0] : arr.length + ' выбрано'}`); };
+  addGroup('Склад', f.warehouses);
+  addGroup('Город', f.cities);
+  addGroup('Способ доставки', f.deliveryMethods);
+  addGroup('Перевозчик', f.carriers);
+  addGroup('Сервис', f.services);
+
+  for (const t of tags) {
+    const el = document.createElement('span');
+    el.className = 'filter-tag';
+    el.textContent = t;
+    wrap.appendChild(el);
+  }
+}
+
+/** Сбрасывает все фильтры к начальному состоянию (весь диапазон дат, ничего не выбрано в списках) */
+function resetFilters() {
+  document.querySelectorAll('.filter-group select[multiple]').forEach(s => {
+    [...s.options].forEach(o => o.selected = false);
+  });
+  setDefaultDateRange(state.rawRows);
+  applyFilters();
+}
+
+// ---------------------------------------------------------------------------
+// 3. АГРЕГАЦИЯ ПОКАЗАТЕЛЕЙ И ОТРИСОВКА
+// ---------------------------------------------------------------------------
+
+function recomputeAndRender() {
+  const rows = state.filteredRows;
+
+  document.getElementById('chipRows').textContent = rows.length.toLocaleString('ru-RU');
+  document.getElementById('chipWh').textContent = new Set(rows.map(r => r.warehouse)).size;
+  document.getElementById('chipTime').textContent = new Date().toLocaleTimeString('ru-RU');
+
+  const dates = rows.map(r => r.statusDate).filter(Boolean);
+  if (dates.length) {
+    const min = new Date(Math.min(...dates));
+    const max = new Date(Math.max(...dates));
+    document.getElementById('subtitleText').textContent =
+      `Период данных: ${fmtDate(min)} — ${fmtDate(max)} · показатель OTIF = отгрузка вовремя и в полном объёме`;
+  } else {
+    document.getElementById('subtitleText').textContent = 'Нет данных для выбранных фильтров';
+  }
+
+  renderKpis(rows);
+  renderOtifTrend(rows);
+  renderOtifBreakdown(rows);
+  renderWarehouseOtif(rows);
+  renderShipVsDeliver(rows);
+  renderDeliveryMethod(rows);
+  renderCarriers(rows);
+  renderBackorder(rows);
+  renderCities(rows);
+  renderLeadTime(rows);
+  renderServiceLevel(rows);
+  renderRevenueOtif(rows);
+  renderProblemsTable(rows);
+}
+
+/** Вспомогательная: доля true среди значений, извлечённых keyFn (игнорируя null) */
+function shareTrue(rows, keyFn) {
+  const vals = rows.map(keyFn).filter(v => v !== null && v !== undefined);
+  if (!vals.length) return null;
+  return vals.filter(Boolean).length / vals.length;
+}
+
+// ---- 3.1 KPI-карточки -------------------------------------------------
+
+function renderKpis(rows) {
+  const grid = document.getElementById('kpiGrid');
+  grid.innerHTML = '';
+
+  const otifRate = shareTrue(rows, r => r.otif);
+  const shipRate = shareTrue(rows, r => r.shipOnTime);
+  const deliverRate = shareTrue(rows, r => r.deliverOnTime);
+  const boFreeRate = shareTrue(rows, r => r.noBackorder);
+  const totalRevenue = sum(rows.map(r => r.revenue));
+  const revenueAtRisk = sum(rows.filter(r => !r.otif).map(r => r.revenue));
+  const totalOrders = rows.length;
+  const problemOrders = rows.filter(r => !r.otif).length;
+  const avgFactLead = avg(rows.map(r => r.factDeliverDays).filter(v => v !== null));
+  const avgPlanLead = avg(rows.map(r => r.planDeliverDays).filter(v => v !== null));
+
+  const stateFor = (rate, good = 0.95, warn = 0.85) =>
+    rate === null ? '' : rate >= good ? 'state-good' : rate >= warn ? 'state-warn' : 'state-bad';
+  const colorFor = (rate, good = 0.95, warn = 0.85) =>
+    rate === null ? COLORS.text : rate >= good ? COLORS.good : rate >= warn ? COLORS.warn : COLORS.bad;
+
+  const cards = [
+    {
+      hero: true,
+      label: 'OTIF · Общий уровень сервиса',
+      value: fmtPct(otifRate),
+      cls: stateFor(otifRate),
+      bar: otifRate,
+      barColor: colorFor(otifRate),
+      sub: `Цель ≥ 95% · заказов вне OTIF: ${problemOrders.toLocaleString('ru-RU')} из ${totalOrders.toLocaleString('ru-RU')}`,
+    },
+    {
+      label: 'Своевременность отгрузки',
+      value: fmtPct(shipRate),
+      cls: stateFor(shipRate),
+      bar: shipRate,
+      barColor: colorFor(shipRate),
+      sub: 'Отгружено в плановую дату',
+    },
+    {
+      label: 'Своевременность доставки',
+      value: fmtPct(deliverRate),
+      cls: stateFor(deliverRate),
+      bar: deliverRate,
+      barColor: colorFor(deliverRate),
+      sub: 'Доставлено в плановую дату',
+    },
+    {
+      label: 'Заказы без Backorder',
+      value: fmtPct(boFreeRate),
+      cls: stateFor(boFreeRate, 0.9, 0.75),
+      bar: boFreeRate,
+      barColor: colorFor(boFreeRate, 0.9, 0.75),
+      sub: 'Полнота комплектации заказа',
+    },
+    {
+      label: 'Сумма реализации в выборке',
+      value: fmtMoney(totalRevenue),
+      unit: '₽',
+      cls: '',
+      sub: `Средний срок доставки: факт ${avgFactLead !== null ? avgFactLead.toFixed(1) : '—'} дн. · план ${avgPlanLead !== null ? avgPlanLead.toFixed(1) : '—'} дн.`,
+    },
+    {
+      label: 'Выручка «под риском» (OTIF = Нет)',
+      value: fmtMoney(revenueAtRisk),
+      unit: '₽',
+      cls: revenueAtRisk > 0 ? 'state-bad' : 'state-good',
+      sub: totalRevenue ? `${fmtPct(revenueAtRisk / totalRevenue)} от суммы реализации выборки` : '—',
+    },
+  ];
+
+  for (const c of cards) {
+    const card = document.createElement('div');
+    card.className = 'kpi-card ' + (c.hero ? 'hero ' : '') + (c.cls || '');
+    card.innerHTML = `
+      <div class="kpi-label"><span>${c.label}</span></div>
+      <div class="kpi-value">${c.value}${c.unit ? `<span class="unit">${c.unit}</span>` : ''}</div>
+      <div class="kpi-sub">${c.sub || ''}</div>
+      ${c.bar !== undefined && c.bar !== null ? `<div class="mini-bar"><div class="mini-bar-fill" style="width:${Math.min(100, c.bar * 100)}%; background:${c.barColor}"></div></div>` : ''}
+    `;
+    grid.appendChild(card);
+  }
+}
+
+function sum(arr) { return arr.reduce((a, b) => a + (b || 0), 0); }
+function avg(arr) { return arr.length ? sum(arr) / arr.length : null; }
+
+// ---- 3.2 Динамика OTIF по дням ----------------------------------------
+
+function renderOtifTrend(rows) {
+  // Группируем по дате статуса "к сборке" (это дата возникновения заказа в цикле)
+  const byDate = new Map();
+  for (const r of rows) {
+    if (!r.statusDate) continue;
+    const key = toInputDate(r.statusDate);
+    if (!byDate.has(key)) byDate.set(key, { total: 0, otif: 0, ship: 0, deliver: 0 });
+    const g = byDate.get(key);
+    g.total++;
+    if (r.otif) g.otif++;
+    if (r.shipOnTime) g.ship++;
+    if (r.deliverOnTime) g.deliver++;
+  }
+  const days = [...byDate.keys()].sort();
+  const otifPct = days.map(d => byDate.get(d).otif / byDate.get(d).total * 100);
+  const shipPct = days.map(d => byDate.get(d).ship / byDate.get(d).total * 100);
+  const orderCounts = days.map(d => byDate.get(d).total);
+  const labels = days.map(d => new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }));
+
+  upsertChart('chartOtifTrend', 'bar', {
+    labels,
+    datasets: [
+      {
+        type: 'bar',
+        label: 'Заказов в день',
+        data: orderCounts,
+        backgroundColor: 'rgba(78,161,255,0.18)',
+        borderRadius: 4,
+        yAxisID: 'y1',
+        order: 3,
+      },
+      {
+        type: 'line',
+        label: 'OTIF, %',
+        data: otifPct,
+        borderColor: COLORS.good,
+        backgroundColor: COLORS.good,
+        tension: 0.3,
+        pointRadius: 3,
+        yAxisID: 'y',
+        order: 1,
+      },
+      {
+        type: 'line',
+        label: 'Отгрузка вовремя, %',
+        data: shipPct,
+        borderColor: COLORS.accent,
+        borderDash: [5, 3],
+        tension: 0.3,
+        pointRadius: 2,
+        yAxisID: 'y',
+        order: 2,
+      },
+      {
+        type: 'line',
+        label: 'Цель 95%',
+        data: days.map(() => 95),
+        borderColor: COLORS.bad,
+        borderWidth: 1,
+        borderDash: [3, 3],
+        pointRadius: 0,
+        yAxisID: 'y',
+        order: 0,
+      },
+    ],
+  }, {
+    scales: {
+      y: { position: 'left', min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: COLORS.grid } },
+      y1: { position: 'right', beginAtZero: true, grid: { display: false } },
+      x: { grid: { display: false } },
+    },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } },
+  });
+}
+
+// ---- 3.3 Разбор невыполнения OTIF (donut) -----------------------------
+
+function renderOtifBreakdown(rows) {
+  const bad = rows.filter(r => !r.otif);
+  const total = bad.length;
+  // Классифицируем причину: отгрузка не вовремя / доставка не вовремя / backorder / несколько причин сразу
+  let onlyShip = 0, onlyDeliver = 0, onlyBo = 0, combo = 0, other = 0;
+  for (const r of bad) {
+    const reasons = [];
+    if (!r.shipOnTime) reasons.push('ship');
+    if (!r.deliverOnTime) reasons.push('deliver');
+    if (!r.noBackorder) reasons.push('bo');
+    if (reasons.length === 0) other++;
+    else if (reasons.length > 1) combo++;
+    else if (reasons[0] === 'ship') onlyShip++;
+    else if (reasons[0] === 'deliver') onlyDeliver++;
+    else onlyBo++;
+  }
+
+  upsertChart('chartOtifBreakdown', 'doughnut', {
+    labels: ['Задержка отгрузки', 'Задержка доставки', 'Backorder (неполный заказ)', 'Несколько причин', 'Другое'],
+    datasets: [{
+      data: [onlyShip, onlyDeliver, onlyBo, combo, other],
+      backgroundColor: [COLORS.warn, COLORS.accent2, COLORS.bad, '#5b6576', COLORS.text],
+      borderColor: COLORS.panel,
+      borderWidth: 2,
+    }],
+  }, {
+    cutout: '62%',
+    plugins: {
+      legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10.5 } } },
+      tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed} (${(ctx.parsed / total * 100).toFixed(1)}%)` } },
+    },
+  }, { centerText: total ? `${total}\nвне OTIF` : 'нет\nданных' });
+}
+
+// ---- 3.4 OTIF по складам (горизонтальный bar) --------------------------
+
+function renderWarehouseOtif(rows) {
+  const byWh = new Map();
+  for (const r of rows) {
+    if (!byWh.has(r.warehouse)) byWh.set(r.warehouse, { total: 0, otif: 0, revenue: 0 });
+    const g = byWh.get(r.warehouse);
+    g.total++;
+    if (r.otif) g.otif++;
+    g.revenue += r.revenue || 0;
+  }
+  const entries = [...byWh.entries()].sort((a, b) => b[1].total - a[1].total);
+  const labels = entries.map(([wh]) => wh.replace('Основной склад ', '').replace('Склад Диагностических наборов ', 'ДН '));
+  const pct = entries.map(([, g]) => g.otif / g.total * 100);
+  const counts = entries.map(([, g]) => g.total);
+  const colors = pct.map(p => p >= 95 ? COLORS.good : p >= 85 ? COLORS.warn : COLORS.bad);
+
+  upsertChart('chartWhOtif', 'bar', {
+    labels,
+    datasets: [{
+      label: 'OTIF, %',
+      data: pct,
+      backgroundColor: colors,
+      borderRadius: 4,
+      barThickness: 16,
+    }],
+  }, {
+    indexAxis: 'y',
+    scales: {
+      x: { min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: COLORS.grid } },
+      y: { grid: { display: false } },
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `OTIF: ${ctx.parsed.x.toFixed(1)}% · заказов: ${counts[ctx.dataIndex]}` } },
+      annotation: undefined,
+    },
+  });
+  // Целевая линия 95% рисуется отдельным плагином ниже через afterDraw (см. targetLinePlugin)
+  state.charts['chartWhOtif']._targetLine = 95;
+}
+
+// ---- 3.5 Отгрузка vs Доставка (сгруппированные столбцы по складам) -----
+
+function renderShipVsDeliver(rows) {
+  const byWh = new Map();
+  for (const r of rows) {
+    if (!byWh.has(r.warehouse)) byWh.set(r.warehouse, { total: 0, ship: 0, deliver: 0 });
+    const g = byWh.get(r.warehouse);
+    g.total++;
+    if (r.shipOnTime) g.ship++;
+    if (r.deliverOnTime) g.deliver++;
+  }
+  const entries = [...byWh.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 8);
+  const labels = entries.map(([wh]) => wh.replace('Основной склад ', '').replace('Склад Диагностических наборов ', 'ДН '));
+
+  upsertChart('chartShipVsDeliver', 'bar', {
+    labels,
+    datasets: [
+      { label: 'Отгрузка вовремя, %', data: entries.map(([, g]) => g.ship / g.total * 100), backgroundColor: COLORS.accent, borderRadius: 4 },
+      { label: 'Доставка вовремя, %', data: entries.map(([, g]) => g.deliver / g.total * 100), backgroundColor: COLORS.accent2, borderRadius: 4 },
+    ],
+  }, {
+    scales: {
+      y: { min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: COLORS.grid } },
+      x: { grid: { display: false }, ticks: { autoSkip: false, maxRotation: 40, minRotation: 40, font: { size: 10 } } },
+    },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } },
+  });
+}
+
+// ---- 3.6 Способ доставки (donut + OTIF) --------------------------------
+
+function renderDeliveryMethod(rows) {
+  const byMethod = new Map();
+  for (const r of rows) {
+    if (!byMethod.has(r.deliveryMethod)) byMethod.set(r.deliveryMethod, { total: 0, otif: 0 });
+    const g = byMethod.get(r.deliveryMethod);
+    g.total++;
+    if (r.otif) g.otif++;
+  }
+  const entries = [...byMethod.entries()].sort((a, b) => b[1].total - a[1].total);
+  upsertChart('chartDeliveryMethod', 'doughnut', {
+    labels: entries.map(([m, g]) => `${m} (OTIF ${(g.otif / g.total * 100).toFixed(0)}%)`),
+    datasets: [{
+      data: entries.map(([, g]) => g.total),
+      backgroundColor: PALETTE,
+      borderColor: COLORS.panel,
+      borderWidth: 2,
+    }],
+  }, {
+    cutout: '55%',
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10.5 } } } },
+  });
+}
+
+// ---- 3.7 Топ-10 перевозчиков --------------------------------------------
+
+function renderCarriers(rows) {
+  const byCarrier = new Map();
+  for (const r of rows) {
+    if (!byCarrier.has(r.carrier)) byCarrier.set(r.carrier, { total: 0, otif: 0 });
+    const g = byCarrier.get(r.carrier);
+    g.total++;
+    if (r.otif) g.otif++;
+  }
+  const entries = [...byCarrier.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 10);
+  const labels = entries.map(([c]) => c);
+  const counts = entries.map(([, g]) => g.total);
+  const otifPct = entries.map(([, g]) => g.otif / g.total * 100);
+  const colors = otifPct.map(p => p >= 95 ? COLORS.good : p >= 85 ? COLORS.warn : COLORS.bad);
+
+  upsertChart('chartCarriers', 'bar', {
+    labels,
+    datasets: [{ label: 'Отгрузок', data: counts, backgroundColor: colors, borderRadius: 4 }],
+  }, {
+    indexAxis: 'y',
+    scales: { x: { grid: { color: COLORS.grid } }, y: { grid: { display: false } } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `Отгрузок: ${ctx.parsed.x} · OTIF: ${otifPct[ctx.dataIndex].toFixed(1)}%` } },
+    },
+  });
+}
+
+// ---- 3.8 Backorder (donut) ----------------------------------------------
+
+function renderBackorder(rows) {
+  const withBo = rows.filter(r => !r.noBackorder).length;
+  const withoutBo = rows.length - withBo;
+  upsertChart('chartBackorder', 'doughnut', {
+    labels: ['Заказ укомплектован полностью', 'Есть недопоставленные позиции'],
+    datasets: [{
+      data: [withoutBo, withBo],
+      backgroundColor: [COLORS.good, COLORS.bad],
+      borderColor: COLORS.panel,
+      borderWidth: 2,
+    }],
+  }, {
+    cutout: '62%',
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } },
+  }, { centerText: rows.length ? `${fmtPct(withBo / rows.length)}\nс Backorder` : '—' });
+}
+
+// ---- 3.9 Топ-15 проблемных городов --------------------------------------
+
+function renderCities(rows) {
+  const byCity = new Map();
+  for (const r of rows) {
+    if (!byCity.has(r.city)) byCity.set(r.city, { total: 0, notOtif: 0 });
+    const g = byCity.get(r.city);
+    g.total++;
+    if (!r.otif) g.notOtif++;
+  }
+  const entries = [...byCity.entries()]
+    .filter(([, g]) => g.total >= 3) // отсекаем города с единичными заказами — шумно для рейтинга
+    .sort((a, b) => b[1].notOtif - a[1].notOtif)
+    .slice(0, 15);
+  const labels = entries.map(([c]) => c);
+  const notOtif = entries.map(([, g]) => g.notOtif);
+  const otifOk = entries.map(([, g]) => g.total - g.notOtif);
+
+  upsertChart('chartCities', 'bar', {
+    labels,
+    datasets: [
+      { label: 'Вне OTIF', data: notOtif, backgroundColor: COLORS.bad, borderRadius: 3, stack: 's' },
+      { label: 'В рамках OTIF', data: otifOk, backgroundColor: COLORS.good, borderRadius: 3, stack: 's' },
+    ],
+  }, {
+    indexAxis: 'y',
+    scales: { x: { stacked: true, grid: { color: COLORS.grid } }, y: { stacked: true, grid: { display: false } } },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } },
+  });
+}
+
+// ---- 3.10 Срок доставки план vs факт (гистограмма распределения) -------
+
+function renderLeadTime(rows) {
+  const plan = rows.map(r => r.planDeliverDays).filter(v => v !== null && v >= 0);
+  const fact = rows.map(r => r.factDeliverDays).filter(v => v !== null && v >= 0);
+  const maxDays = Math.max(1, ...plan, ...fact, 7);
+  const buckets = Array.from({ length: Math.min(maxDays, 12) + 1 }, (_, i) => i);
+
+  const countBucket = (arr) => buckets.map((b, i) => {
+    if (i === buckets.length - 1) return arr.filter(v => v >= b).length; // "и более"
+    return arr.filter(v => v === b).length;
+  });
+  const planCounts = countBucket(plan);
+  const factCounts = countBucket(fact);
+  const labels = buckets.map((b, i) => i === buckets.length - 1 ? `${b}+` : `${b}`);
+
+  upsertChart('chartLeadTime', 'bar', {
+    labels,
+    datasets: [
+      { label: 'План (раб. дней)', data: planCounts, backgroundColor: 'rgba(78,161,255,0.55)', borderRadius: 3 },
+      { label: 'Факт (раб. дней)', data: factCounts, backgroundColor: 'rgba(242,73,92,0.55)', borderRadius: 3 },
+    ],
+  }, {
+    scales: {
+      x: { title: { display: true, text: 'Срок доставки, рабочих дней', color: COLORS.text, font: { size: 10.5 } }, grid: { display: false } },
+      y: { title: { display: true, text: 'Число заказов', color: COLORS.text, font: { size: 10.5 } }, grid: { color: COLORS.grid } },
+    },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } },
+  });
+}
+
+// ---- 3.11 Уровень сервиса доставки (horizontal bar, OTIF %) ------------
+
+function renderServiceLevel(rows) {
+  const byService = new Map();
+  for (const r of rows) {
+    if (!byService.has(r.serviceLevel)) byService.set(r.serviceLevel, { total: 0, otif: 0 });
+    const g = byService.get(r.serviceLevel);
+    g.total++;
+    if (r.otif) g.otif++;
+  }
+  const entries = [...byService.entries()].sort((a, b) => b[1].total - a[1].total);
+  const labels = entries.map(([s]) => s);
+  const pct = entries.map(([, g]) => g.otif / g.total * 100);
+  const counts = entries.map(([, g]) => g.total);
+  const colors = pct.map(p => p >= 95 ? COLORS.good : p >= 85 ? COLORS.warn : COLORS.bad);
+
+  upsertChart('chartServiceLevel', 'bar', {
+    labels,
+    datasets: [{ label: 'OTIF, %', data: pct, backgroundColor: colors, borderRadius: 4 }],
+  }, {
+    indexAxis: 'y',
+    scales: { x: { min: 0, max: 100, ticks: { callback: v => v + '%' }, grid: { color: COLORS.grid } }, y: { grid: { display: false }, ticks: { font: { size: 10.5 } } } },
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => `OTIF: ${ctx.parsed.x.toFixed(1)}% · заказов: ${counts[ctx.dataIndex]}` } },
+    },
+  });
+}
+
+// ---- 3.12 Сумма реализации по дням: OTIF ok vs not ----------------------
+
+function renderRevenueOtif(rows) {
+  const byDate = new Map();
+  for (const r of rows) {
+    if (!r.statusDate) continue;
+    const key = toInputDate(r.statusDate);
+    if (!byDate.has(key)) byDate.set(key, { ok: 0, bad: 0 });
+    const g = byDate.get(key);
+    if (r.otif) g.ok += (r.revenue || 0); else g.bad += (r.revenue || 0);
+  }
+  const days = [...byDate.keys()].sort();
+  const labels = days.map(d => new Date(d).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }));
+
+  upsertChart('chartRevenueOtif', 'bar', {
+    labels,
+    datasets: [
+      { label: 'Выполнено OTIF, ₽', data: days.map(d => byDate.get(d).ok), backgroundColor: COLORS.good, stack: 's', borderRadius: 3 },
+      { label: 'Не выполнено OTIF, ₽', data: days.map(d => byDate.get(d).bad), backgroundColor: COLORS.bad, stack: 's', borderRadius: 3 },
+    ],
+  }, {
+    scales: {
+      x: { stacked: true, grid: { display: false } },
+      y: { stacked: true, grid: { color: COLORS.grid }, ticks: { callback: v => (v / 1000).toFixed(0) + 'k' } },
+    },
+    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10 } } },
+  });
+}
+
+// ---- 3.13 Таблица проблемных заказов ------------------------------------
+
+function renderProblemsTable(rows) {
+  const problems = rows.filter(r => !r.otif);
+  document.getElementById('problemsCount').textContent = `${problems.length.toLocaleString('ru-RU')} заказов`;
+
+  const sortKeyMap = {
+    wh: r => r.warehouse, order: r => r.orderNumber, contractor: r => r.contractor,
+    city: r => r.city, planShip: r => r.planShipDate, factShip: r => r.factShipDate,
+    shipOk: r => r.shipOnTime, deliverOk: r => r.deliverOnTime, bo: r => r.noBackorder,
+    sum: r => r.revenue || 0,
+  };
+  const { key, dir } = state.sort;
+  const sorted = [...problems].sort((a, b) => {
+    let av = sortKeyMap[key](a), bv = sortKeyMap[key](b);
+    if (av instanceof Date || bv instanceof Date) { av = av ? av.getTime() : -Infinity; bv = bv ? bv.getTime() : -Infinity; }
+    if (typeof av === 'boolean') { av = av ? 1 : 0; bv = bv ? 1 : 0; }
+    if (typeof av === 'string') return dir === 'asc' ? av.localeCompare(bv, 'ru') : bv.localeCompare(av, 'ru');
+    return dir === 'asc' ? av - bv : bv - av;
+  }).slice(0, 200); // ограничиваем вывод топ-200 строк ради производительности рендера
+
+  const tbody = document.getElementById('problemsBody');
+  tbody.innerHTML = sorted.map(r => `
+    <tr>
+      <td>${escapeHtml(r.warehouse.replace('Основной склад ', '').replace('Склад Диагностических наборов ', 'ДН '))}</td>
+      <td>${escapeHtml(r.orderNumber || '—')}</td>
+      <td>${escapeHtml(r.contractor || '—')}</td>
+      <td>${escapeHtml(r.city)}</td>
+      <td>${fmtDate(r.planShipDate)}</td>
+      <td>${fmtDate(r.factShipDate)}</td>
+      <td><span class="badge ${r.shipOnTime ? 'good' : 'bad'}">${r.shipOnTime ? 'Да' : 'Нет'}</span></td>
+      <td><span class="badge ${r.deliverOnTime ? 'good' : 'bad'}">${r.deliverOnTime ? 'Да' : 'Нет'}</span></td>
+      <td><span class="badge ${r.noBackorder ? 'good' : 'warn'}">${r.noBackorder ? 'Нет' : 'Есть'}</span></td>
+      <td>${fmtMoney(r.revenue)}</td>
+    </tr>
+  `).join('') || `<tr><td colspan="10" style="text-align:center; color:var(--text-faint); padding:20px;">Проблемных заказов в выборке не найдено 🎉</td></tr>`;
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// 4. УТИЛИТА СОЗДАНИЯ/ОБНОВЛЕНИЯ ГРАФИКОВ + ПЛАГИНЫ
+// ---------------------------------------------------------------------------
+
+// Плагин для отрисовки текста по центру doughnut-графиков (общее число и т.п.)
+const centerTextPlugin = {
+  id: 'centerText',
+  afterDraw(chart, args, opts) {
+    if (!opts || !opts.centerText) return;
+    const { ctx, chartArea: { left, right, top, bottom } } = chart;
+    const cx = (left + right) / 2, cy = (top + bottom) / 2;
+    const lines = String(opts.centerText).split('\n');
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#e7ecf3';
+    ctx.font = "700 20px 'JetBrains Mono', monospace";
+    ctx.fillText(lines[0], cx, cy - (lines.length > 1 ? 9 : 0));
+    if (lines[1]) {
+      ctx.font = "500 10.5px 'Inter', sans-serif";
+      ctx.fillStyle = '#8b97a8';
+      ctx.fillText(lines[1], cx, cy + 12);
+    }
+    ctx.restore();
+  }
+};
+
+// Плагин для целевой линии (например, 95% OTIF) на горизонтальных барах
+const targetLinePlugin = {
+  id: 'targetLine',
+  afterDraw(chart) {
+    const target = chart._targetLine;
+    if (target === undefined) return;
+    const xScale = chart.scales.x;
+    if (!xScale) return;
+    const xPos = xScale.getPixelForValue(target);
+    const { ctx, chartArea: { top, bottom } } = chart;
+    ctx.save();
+    ctx.strokeStyle = '#f2495c';
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(xPos, top);
+    ctx.lineTo(xPos, bottom);
+    ctx.stroke();
+    ctx.restore();
+  }
+};
+Chart.register(centerTextPlugin, targetLinePlugin);
+
+/**
+ * Создаёт график при первом вызове или обновляет данные существующего.
+ * type: тип графика по умолчанию для датасетов ('bar' | 'doughnut' | 'line' ...)
+ * data: { labels, datasets }
+ * options: доп. options.plugins.* и options.scales.*
+ * pluginOpts: { centerText } — прокидывается в plugins.centerText для doughnut-графиков
+ */
+function upsertChart(canvasId, type, data, options = {}, pluginOpts = {}) {
+  const existing = state.charts[canvasId];
+  const mergedOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      centerText: pluginOpts.centerText ? { centerText: pluginOpts.centerText } : undefined,
+      ...(options.plugins || {}),
+    },
+    ...options,
+  };
+
+  if (existing) {
+    existing.data = data;
+    existing.options = mergedOptions;
+    existing.update();
+  } else {
+    const ctx = document.getElementById(canvasId).getContext('2d');
+    state.charts[canvasId] = new Chart(ctx, { type, data, options: mergedOptions });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 5. СОРТИРОВКА ТАБЛИЦЫ ПО КЛИКУ НА ЗАГОЛОВОК
+// ---------------------------------------------------------------------------
+document.getElementById('problemsTable').addEventListener('click', (e) => {
+  const th = e.target.closest('th[data-key]');
+  if (!th) return;
+  const key = th.dataset.key;
+  if (state.sort.key === key) {
+    state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    state.sort.key = key;
+    state.sort.dir = 'desc';
+  }
+  renderProblemsTable(state.filteredRows);
+});
+
+// ---------------------------------------------------------------------------
+// 6. ПРИВЯЗКА СОБЫТИЙ ФИЛЬТРОВ
+// ---------------------------------------------------------------------------
+document.getElementById('btnApply').addEventListener('click', applyFilters);
+document.getElementById('btnReset').addEventListener('click', resetFilters);
+// Даты применяются сразу по изменению — это привычнее для пользователя
+document.getElementById('fDateFrom').addEventListener('change', applyFilters);
+document.getElementById('fDateTo').addEventListener('change', applyFilters);
+
+// ---------------------------------------------------------------------------
+// СТАРТ
+// ---------------------------------------------------------------------------
+init();
+</script>
+</body>
+</html>
