@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Дашборд отгрузок 09-07. 14-30</title>
+<title>Заказы 09.07 15-06 </title>
 
 <!-- ============================================================
      ВНЕШНИЕ БИБЛИОТЕКИ
@@ -14,9 +14,8 @@
      Chart.js   — построение графиков (donut/bar/line).
      ============================================================ -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
-<!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script> -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-     
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script>
+
 <style>
   /* ============================================================
      ДИЗАЙН-ТОКЕНЫ
@@ -117,6 +116,98 @@
     max-width: 1400px;
     margin: 0 auto;
     padding: 24px 28px 60px;
+  }
+
+  /* ---------- ПАНЕЛЬ ФИЛЬТРА ПО ДАТАМ ---------- */
+  .filter-bar{
+    display:flex;
+    align-items:flex-end;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 14px 18px;
+    margin-bottom: 4px;
+  }
+  .filter-field{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .filter-field label{
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-faint);
+    font-weight:600;
+  }
+  .filter-field input[type="date"]{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-family: "Roboto Mono","SF Mono",Consolas,monospace;
+    font-size: 12.5px;
+    padding: 7px 9px;
+    border-radius: 3px;
+    color-scheme: dark;
+  }
+  .filter-field input[type="date"]:focus{
+    outline: none;
+    border-color: var(--progress);
+  }
+  .filter-presets{
+    display:flex;
+    gap:6px;
+    flex-wrap: wrap;
+  }
+  .preset-btn{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 11.5px;
+    font-weight:600;
+    padding: 7px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .preset-btn:hover{ border-color: var(--progress); color: var(--text); }
+  .preset-btn.active{
+    background: var(--progress-dim);
+    border-color: var(--progress);
+    color: var(--text);
+  }
+  .filter-bar .apply-btn{
+    background: var(--ok);
+    border: 1px solid var(--ok);
+    color: #0b1e15;
+    font-size: 12px;
+    font-weight:700;
+    padding: 8px 16px;
+    border-radius: 3px;
+    cursor:pointer;
+    letter-spacing:0.02em;
+  }
+  .filter-bar .apply-btn:hover{ background: #58e0a3; }
+  .filter-bar .reset-btn{
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight:600;
+    padding: 8px 14px;
+    border-radius: 3px;
+    cursor:pointer;
+  }
+  .filter-bar .reset-btn:hover{ color: var(--text); border-color: var(--text-dim); }
+  .filter-status{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-left: auto;
+    align-self:center;
+  }
+  .filter-status b{ color: var(--text); }
+  .filter-hint{
+    font-size: 10.5px;
+    color: var(--text-faint);
   }
 
   .section-title{
@@ -401,6 +492,33 @@
 
   <main>
 
+    <!-- ================= ФИЛЬТР ПО ДАТАМ ================= -->
+    <!-- Фильтрация идёт по полю "Дата заказа": пользователь выбирает
+         диапазон дат создания заказа, и весь дашборд (KPI, графики,
+         таблицы) пересчитывается только по заказам, попавшим в диапазон. -->
+    <div class="panel filter-bar">
+      <div class="filter-field">
+        <label for="filterFrom">Дата заказа — от</label>
+        <input type="date" id="filterFrom">
+      </div>
+      <div class="filter-field">
+        <label for="filterTo">Дата заказа — до</label>
+        <input type="date" id="filterTo">
+      </div>
+      <div class="filter-field">
+        <label>Быстрый выбор</label>
+        <div class="filter-presets">
+          <button class="preset-btn" data-preset="today">Сегодня</button>
+          <button class="preset-btn" data-preset="7">7 дней</button>
+          <button class="preset-btn" data-preset="30">30 дней</button>
+          <button class="preset-btn active" data-preset="all">Весь период</button>
+        </div>
+      </div>
+      <button class="apply-btn" id="applyFilterBtn">Применить</button>
+      <button class="reset-btn" id="resetFilterBtn">Сбросить</button>
+      <div class="filter-status" id="filterStatus">Показан весь период</div>
+    </div>
+
     <!-- ================= ГЛАВНЫЕ KPI ================= -->
     <div class="kpi-row">
 
@@ -443,6 +561,37 @@
         <div class="foot"><span id="kpiPriorityOnTimePct" class="num">—</span>% из них — вовремя</div>
       </div>
 
+    </div>
+
+    <!-- ================= ВРЕМЯ ОБРАБОТКИ ЗАКАЗА ================= -->
+    <!-- "Время обработки" = интервал от создания заказа (Дата заказа)
+         до фактической отгрузки (Фактическая дата отгрузки).
+         Считается только по реально отгруженным заказам (есть обе даты).
+         Показываем среднее и медиану — среднее чувствительно к редким
+         очень долгим заказам, медиана даёт более честную "типичную"
+         картину для руководства. -->
+    <div class="section-title">Время обработки заказа</div>
+    <div class="grid-3">
+      <div class="panel" style="padding:18px;">
+        <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Среднее время обработки — все заказы</div>
+        <div class="value num" style="font-size:32px;font-weight:700;margin-top:10px;" id="procAvgAll">—</div>
+        <div class="foot" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">медиана: <span class="num" id="procMedAll">—</span> · заказов в расчёте: <span class="num" id="procNAll">—</span></div>
+      </div>
+      <div class="panel" style="padding:18px;border:1px solid var(--priority-dim);">
+        <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Среднее время обработки — приоритетные (зелёные)</div>
+        <div class="value num val-priority" style="font-size:32px;font-weight:700;margin-top:10px;" id="procAvgPrio">—</div>
+        <div class="foot" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">медиана: <span class="num" id="procMedPrio">—</span> · заказов в расчёте: <span class="num" id="procNPrio">—</span></div>
+      </div>
+      <div class="panel" style="padding:18px;">
+        <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Разница приоритетные vs остальные</div>
+        <div class="value num" style="font-size:32px;font-weight:700;margin-top:10px;" id="procDelta">—</div>
+        <div class="foot" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;" id="procDeltaHint">по среднему времени обработки</div>
+      </div>
+    </div>
+    <div class="panel chart-card" style="margin-top:16px;">
+      <h3>Среднее время обработки по дням</h3>
+      <div class="desc">Дата заказа → сравнение всех заказов и приоритетных (зелёных) клиентов, часы</div>
+      <div class="chart-wrap short"><canvas id="chartProcTime"></canvas></div>
     </div>
 
     <!-- ================= ОСНОВНЫЕ ГРАФИКИ ================= -->
@@ -718,18 +867,29 @@ async function loadOrders(){
   return dataRows;
 }
 
-// ---------- ПОСТРОЕНИЕ ДАШБОРДА ----------
-
-function buildDashboard(orders){
-
-  // Классифицируем все заказы один раз и обогащаем их вычисленными полями
-  const enriched = orders.map(o => {
+// ---------- ОБОГАЩЕНИЕ ДАННЫХ (выполняется один раз при загрузке) ----------
+// Разбираем сырые CSV-строки в удобные объекты с вычисленными полями:
+// статус (on_time/late/in_progress/cancelled/no_plan), флаг приоритета,
+// даты и время обработки заказа. Дальше фильтрация по датам работает
+// уже поверх этого готового массива — не нужно заново парсить CSV.
+function enrichOrders(orders){
+  return orders.map(o => {
     const cls = classifyOrder(o);
+    const orderDate = parseRuDate(o[COL.orderDate]);
     const planDate = parseRuDate(o[COL.planDate]);
     const factDate = parseRuDate(o[COL.factDate]);
     const lateMs = (cls === 'late' && planDate && factDate)
       ? (factDate.getTime() - planDate.getTime())
       : null;
+
+    // Время обработки заказа = от создания заказа до фактической отгрузки.
+    // Считаем только там, где заказ реально отгружен (есть обе даты) —
+    // для заказов "в работе" процесс ещё не завершён, среднее по ним
+    // считать некорректно (занизит цифру для незавершённых заказов).
+    const processingMs = (factDate && orderDate && factDate > orderDate)
+      ? (factDate.getTime() - orderDate.getTime())
+      : null;
+
     return {
       raw: o,
       status: cls,
@@ -739,10 +899,46 @@ function buildDashboard(orders){
       carrier: o[COL.deliveryType] || 'Не указан',
       contragent: o[COL.contragent] || 'Не указан',
       orderNumber: o[COL.orderNumber],
-      planDate, factDate, lateMs,
+      orderDate, planDate, factDate, lateMs, processingMs,
       qty: parseInt(o[COL.qty], 10) || 0,
     };
   });
+}
+
+// Хранилище чартов Chart.js — нужно, чтобы при повторном рендере
+// (после смены фильтра) сначала уничтожать старые инстансы, иначе
+// Chart.js будет накладывать новые графики поверх старых на том же canvas.
+const chartInstances = {};
+function renderChart(canvasId, config){
+  if (chartInstances[canvasId]){
+    chartInstances[canvasId].destroy();
+  }
+  chartInstances[canvasId] = new Chart(document.getElementById(canvasId), config);
+}
+
+// Простая статистика по массиву чисел (миллисекунды)
+function average(arr){
+  if (!arr.length) return null;
+  return arr.reduce((a,b)=>a+b,0) / arr.length;
+}
+function median(arr){
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length % 2 ? s[mid] : (s[mid-1]+s[mid])/2;
+}
+// Форматирует миллисекунды в "Ч ч М мин" для крупных KPI-цифр времени обработки
+function fmtHoursMin(ms){
+  if (ms == null) return '—';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h} ч ${m} мин`;
+}
+
+// ---------- ПОСТРОЕНИЕ ДАШБОРДА (вызывается при каждом применении фильтра) ----------
+
+function buildDashboard(enriched){
 
   const total = enriched.length;
   const onTime   = enriched.filter(o => o.status === 'on_time');
@@ -761,12 +957,14 @@ function buildDashboard(orders){
   const priorityOnTimePct = priorityShippedTotal ? (priorityOnTime.length / priorityShippedTotal * 100) : 0;
 
   // ---------- ШАПКА: период данных ----------
-  const allOrderDates = enriched.map(o => parseRuDate(o.raw[COL.orderDate])).filter(Boolean);
+  const allOrderDates = enriched.map(o => o.orderDate).filter(Boolean);
   if (allOrderDates.length){
     const minD = new Date(Math.min(...allOrderDates));
     const maxD = new Date(Math.max(...allOrderDates));
     document.getElementById('metaPeriod').textContent =
       `${minD.toLocaleDateString('ru-RU')} — ${maxD.toLocaleDateString('ru-RU')}`;
+  } else {
+    document.getElementById('metaPeriod').textContent = 'нет данных за выбранный диапазон';
   }
   document.getElementById('metaCount').textContent = total.toLocaleString('ru-RU');
   document.getElementById('metaGenerated').textContent = new Date().toLocaleString('ru-RU');
@@ -787,8 +985,95 @@ function buildDashboard(orders){
   document.getElementById('kpiPriorityTotal').textContent = priorityOrders.length.toLocaleString('ru-RU');
   document.getElementById('kpiPriorityOnTimePct').textContent = priorityOnTimePct.toFixed(1);
 
+  // ---------- ВРЕМЯ ОБРАБОТКИ ЗАКАЗА ----------
+  // Берём processingMs только там, где он посчитан (заказ реально отгружен).
+  // Отдельно — для всех заказов и отдельно — только для приоритетных (зелёных).
+  const procAll  = enriched.map(o => o.processingMs).filter(v => v != null);
+  const procPrio = enriched.filter(o => o.priority).map(o => o.processingMs).filter(v => v != null);
+
+  const procAvgAllMs  = average(procAll);
+  const procMedAllMs  = median(procAll);
+  const procAvgPrioMs = average(procPrio);
+  const procMedPrioMs = median(procPrio);
+
+  document.getElementById('procAvgAll').textContent = fmtHoursMin(procAvgAllMs);
+  document.getElementById('procMedAll').textContent = fmtHoursMin(procMedAllMs);
+  document.getElementById('procNAll').textContent = procAll.length.toLocaleString('ru-RU');
+
+  document.getElementById('procAvgPrio').textContent = fmtHoursMin(procAvgPrioMs);
+  document.getElementById('procMedPrio').textContent = fmtHoursMin(procMedPrioMs);
+  document.getElementById('procNPrio').textContent = procPrio.length.toLocaleString('ru-RU');
+
+  // Разница в среднем времени обработки: приоритетные vs остальные (не приоритетные).
+  // Показываем знак и текст, чтобы сразу было видно, быстрее или медленнее
+  // обслуживаются приоритетные клиенты по сравнению с обычными.
+  const procNonPrio = enriched.filter(o => !o.priority).map(o => o.processingMs).filter(v => v != null);
+  const procAvgNonPrioMs = average(procNonPrio);
+  const deltaEl = document.getElementById('procDelta');
+  const deltaHintEl = document.getElementById('procDeltaHint');
+  if (procAvgPrioMs != null && procAvgNonPrioMs != null){
+    const deltaMs = procAvgPrioMs - procAvgNonPrioMs;
+    const faster = deltaMs < 0;
+    deltaEl.textContent = (faster ? '−' : '+') + fmtHoursMin(Math.abs(deltaMs));
+    deltaEl.className = 'value num ' + (faster ? 'val-ok' : 'val-late');
+    deltaEl.style.fontSize = '32px'; deltaEl.style.fontWeight = '700'; deltaEl.style.marginTop = '10px';
+    deltaHintEl.textContent = faster
+      ? 'приоритетные обрабатываются быстрее обычных'
+      : 'приоритетные обрабатываются медленнее обычных — требует внимания';
+  } else {
+    deltaEl.textContent = '—';
+    deltaHintEl.textContent = 'недостаточно данных для сравнения';
+  }
+
+  // ---------- ГРАФИК: среднее время обработки по дням ----------
+  // Группируем по дню "Дата заказа", считаем среднее время обработки (в часах)
+  // отдельно для всех заказов и отдельно для приоритетных.
+  const procByDay = {}; // { 'YYYY-MM-DD': { all:[ms...], prio:[ms...] } }
+  function dayKeyLocal(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  enriched.forEach(o => {
+    if (o.processingMs == null || !o.orderDate) return;
+    const key = dayKeyLocal(o.orderDate);
+    if (!procByDay[key]) procByDay[key] = { all: [], prio: [] };
+    procByDay[key].all.push(o.processingMs);
+    if (o.priority) procByDay[key].prio.push(o.processingMs);
+  });
+  const procDays = Object.keys(procByDay).sort();
+  const procDayLabels = procDays.map(k => { const [y,m,d]=k.split('-'); return `${d}.${m}`; });
+  const msToHours = ms => ms != null ? +(ms/3600000).toFixed(1) : null;
+
+  renderChart('chartProcTime', {
+    type: 'line',
+    data: {
+      labels: procDayLabels,
+      datasets: [
+        {
+          label: 'Все заказы, ч',
+          data: procDays.map(k => msToHours(average(procByDay[k].all))),
+          borderColor: '#5b9bd5', backgroundColor: 'rgba(91,155,213,0.12)',
+          tension: 0.25, fill: true, pointRadius: 3,
+        },
+        {
+          label: 'Приоритетные (зелёные), ч',
+          data: procDays.map(k => msToHours(average(procByDay[k].prio))),
+          borderColor: '#8fd14f', backgroundColor: 'rgba(143,209,79,0.12)',
+          tension: 0.25, fill: true, pointRadius: 3,
+        },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' }, beginAtZero:true, title:{display:true,text:'часы',color:'#93a0b0'} }
+      },
+      plugins: { legend:{ position:'bottom', labels:{ color:'#93a0b0', font:{size:10.5}, usePointStyle:true } } }
+    }
+  });
+
   // ---------- ГРАФИК: донат по статусам ----------
-  new Chart(document.getElementById('chartStatusDonut'), {
+  renderChart('chartStatusDonut', {
     type: 'doughnut',
     data: {
       labels: ['Вовремя', 'С опозданием', 'В работе', 'Аннулировано'],
@@ -832,7 +1117,7 @@ function buildDashboard(orders){
     return `${d}.${m}`;
   });
 
-  new Chart(document.getElementById('chartTimeline'), {
+  renderChart('chartTimeline', {
     type: 'bar',
     data: {
       labels: dayLabels,
@@ -859,7 +1144,7 @@ function buildDashboard(orders){
   enriched.forEach(o => { carrierCounts[o.carrier] = (carrierCounts[o.carrier]||0)+1; });
   const carrierEntries = Object.entries(carrierCounts).sort((a,b)=>b[1]-a[1]);
 
-  new Chart(document.getElementById('chartCarrier'), {
+  renderChart('chartCarrier', {
     type: 'bar',
     data: {
       labels: carrierEntries.map(e=>e[0]),
@@ -885,7 +1170,7 @@ function buildDashboard(orders){
   });
   const regionEntries = Object.entries(regionStats);
 
-  new Chart(document.getElementById('chartRegion'), {
+  renderChart('chartRegion', {
     type: 'bar',
     data: {
       labels: regionEntries.map(e=>e[0]),
@@ -918,7 +1203,7 @@ function buildDashboard(orders){
     'СОЗДАН':'#93a0b0','АННУЛИРОВАН_ДО':'#6b7585','АННУЛИРОВАН_ПОСЛЕ':'#4a5261'
   };
 
-  new Chart(document.getElementById('chartWarehouseStatus'), {
+  renderChart('chartWarehouseStatus', {
     type: 'bar',
     data: {
       labels: whEntries.map(e=>whStatusLabels[e[0]]||e[0]),
@@ -947,7 +1232,7 @@ function buildDashboard(orders){
     late.filter(o => o.lateMs > b.min && o.lateMs <= b.max).length
   );
 
-  new Chart(document.getElementById('chartLateBuckets'), {
+  renderChart('chartLateBuckets', {
     type: 'bar',
     data: {
       labels: buckets.map(b=>b.label),
@@ -971,7 +1256,7 @@ function buildDashboard(orders){
   late.forEach(o => { lateByContragent[o.contragent] = (lateByContragent[o.contragent]||0)+1; });
   const topLate = Object.entries(lateByContragent).sort((a,b)=>b[1]-a[1]).slice(0,10);
 
-  new Chart(document.getElementById('chartTopLateClients'), {
+  renderChart('chartTopLateClients', {
     type: 'bar',
     data: {
       labels: topLate.map(e => e[0].length > 28 ? e[0].slice(0,26)+'…' : e[0]),
@@ -1029,6 +1314,106 @@ function buildDashboard(orders){
   `).join('');
 }
 
+// =====================================================================
+// ФИЛЬТР ПО ДИАПАЗОНУ ДАТ
+// ---------------------------------------------------------------------
+// Фильтруем по полю "Дата заказа" (orderDate). Пользователь выбирает
+// диапазон через два <input type="date">, либо через кнопки быстрого
+// выбора (сегодня / 7 дней / 30 дней / весь период). Диапазон включает
+// обе границы целиком (00:00:00 первого дня — 23:59:59 последнего).
+// =====================================================================
+
+let ALL_ORDERS = []; // все обогащённые заказы, загружаются один раз при старте
+
+// Возвращает подмножество ALL_ORDERS, чья orderDate попадает в [from, to]
+// (Date-объекты или null, если граница не задана — тогда не ограничиваем).
+function filterOrdersByDateRange(from, to){
+  return ALL_ORDERS.filter(o => {
+    if (!o.orderDate) return false;
+    if (from && o.orderDate < from) return false;
+    if (to && o.orderDate > to) return false;
+    return true;
+  });
+}
+
+// Преобразует значение <input type="date"> ("YYYY-MM-DD") в начало/конец дня
+function inputToStartOfDay(value){
+  if (!value) return null;
+  const [y,m,d] = value.split('-').map(Number);
+  return new Date(y, m-1, d, 0,0,0,0);
+}
+function inputToEndOfDay(value){
+  if (!value) return null;
+  const [y,m,d] = value.split('-').map(Number);
+  return new Date(y, m-1, d, 23,59,59,999);
+}
+function dateToInputValue(d){
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+// Применяет текущие значения полей фильтра: пересчитывает дашборд
+// и обновляет строку статуса ("Показано N заказов за ...").
+function applyDateFilter(){
+  const fromInput = document.getElementById('filterFrom').value;
+  const toInput = document.getElementById('filterTo').value;
+  const from = inputToStartOfDay(fromInput);
+  const to = inputToEndOfDay(toInput);
+
+  const filtered = filterOrdersByDateRange(from, to);
+  buildDashboard(filtered);
+
+  const statusEl = document.getElementById('filterStatus');
+  if (!from && !to){
+    statusEl.innerHTML = `Показан весь период · <b>${ALL_ORDERS.length.toLocaleString('ru-RU')}</b> заказов`;
+  } else {
+    const fromLabel = from ? from.toLocaleDateString('ru-RU') : '…';
+    const toLabel = to ? to.toLocaleDateString('ru-RU') : '…';
+    statusEl.innerHTML = `${fromLabel} — ${toLabel} · <b>${filtered.length.toLocaleString('ru-RU')}</b> заказов`;
+  }
+}
+
+// Настраивает быстрые пресеты диапазона (сегодня / 7 дней / 30 дней / весь период)
+// относительно самой поздней даты заказа в файле — это надёжнее, чем
+// брать текущую дату браузера, т.к. данные могут быть выгружены не сегодня.
+function setupPresets(maxOrderDate){
+  const presetButtons = document.querySelectorAll('.preset-btn');
+  presetButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      presetButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const preset = btn.dataset.preset;
+      const fromInput = document.getElementById('filterFrom');
+      const toInput = document.getElementById('filterTo');
+
+      if (preset === 'all'){
+        fromInput.value = '';
+        toInput.value = '';
+      } else if (preset === 'today'){
+        fromInput.value = dateToInputValue(maxOrderDate);
+        toInput.value = dateToInputValue(maxOrderDate);
+      } else {
+        // '7' или '30' — последние N дней, считая от самой поздней даты заказа
+        const days = parseInt(preset, 10);
+        const fromDate = new Date(maxOrderDate);
+        fromDate.setDate(fromDate.getDate() - (days - 1));
+        fromInput.value = dateToInputValue(fromDate);
+        toInput.value = dateToInputValue(maxOrderDate);
+      }
+      applyDateFilter();
+    });
+  });
+
+  // Если пользователь вручную меняет поля дат — снимаем подсветку с пресетов,
+  // т.к. диапазон больше не соответствует ни одному из них.
+  ['filterFrom','filterTo'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      presetButtons.forEach(b => b.classList.remove('active'));
+    });
+  });
+}
+
 // ---------- ТОЧКА ВХОДА ----------
 
 async function init(){
@@ -1039,7 +1424,41 @@ async function init(){
     if (!orders.length){
       throw new Error('Файл orders.csv загружен, но не удалось распознать ни одной строки данных. Проверьте формат файла.');
     }
-    buildDashboard(orders);
+
+    // Обогащаем данные один раз — дальше фильтр работает поверх готового массива
+    ALL_ORDERS = enrichOrders(orders);
+
+    // Определяем границы доступных дат заказа — используются для
+    // ограничения <input type="date"> и для расчёта пресетов
+    const orderDates = ALL_ORDERS.map(o => o.orderDate).filter(Boolean);
+    if (orderDates.length){
+      const minDate = new Date(Math.min(...orderDates));
+      const maxDate = new Date(Math.max(...orderDates));
+      const fromInput = document.getElementById('filterFrom');
+      const toInput = document.getElementById('filterTo');
+      fromInput.min = dateToInputValue(minDate);
+      fromInput.max = dateToInputValue(maxDate);
+      toInput.min = dateToInputValue(minDate);
+      toInput.max = dateToInputValue(maxDate);
+
+      setupPresets(maxDate);
+    }
+
+    // Кнопки "Применить" и "Сбросить"
+    document.getElementById('applyFilterBtn').addEventListener('click', applyDateFilter);
+    document.getElementById('resetFilterBtn').addEventListener('click', () => {
+      document.getElementById('filterFrom').value = '';
+      document.getElementById('filterTo').value = '';
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector('.preset-btn[data-preset="all"]').classList.add('active');
+      applyDateFilter();
+    });
+
+    // Первый рендер — весь период
+    buildDashboard(ALL_ORDERS);
+    document.getElementById('filterStatus').innerHTML =
+      `Показан весь период · <b>${ALL_ORDERS.length.toLocaleString('ru-RU')}</b> заказов`;
+
     loadState.classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
   } catch (err){
