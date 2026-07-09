@@ -1,0 +1,1479 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Заказы 09.07 16-16 </title>
+
+<!-- ============================================================
+     ВНЕШНИЕ БИБЛИОТЕКИ
+     PapaParse  — парсинг CSV прямо в браузере (умеет работать
+                  с многострочными полями в кавычках, что важно,
+                  т.к. в orders.csv адреса переносятся на новую
+                  строку внутри одной "ячейки").
+     Chart.js   — построение графиков (donut/bar/line).
+     ============================================================ -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.3/chart.umd.min.js"></script> -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+  /* ============================================================
+     ДИЗАЙН-ТОКЕНЫ
+     Тема — «диспетчерская склада»: тёмная консоль, табличные
+     цифры, статусные цвета несут смысл (не декоративны).
+     ============================================================ */
+  :root{
+    --bg:            #10151b;
+    --panel:         #171e26;
+    --panel-2:       #1d2530;
+    --line:          #2a323d;
+    --line-soft:     #232b35;
+    --text:          #e8ecf1;
+    --text-dim:      #93a0b0;
+    --text-faint:    #5c6b78;
+
+    --ok:            #3dd68c;   /* вовремя */
+    --ok-dim:        #235a45;
+    --late:          #ff6b5e;   /* опоздание */
+    --late-dim:      #5c2e2b;
+    --progress:      #5b9bd5;   /* в работе */
+    --progress-dim:  #2b4360;
+    --cancel:        #6b7585;   /* аннулировано */
+    --priority:      #8fd14f;   /* зелёный приоритет клиента */
+    --priority-dim:  #3a4a24;
+    --amber:         #f0b429;
+
+    --radius: 3px;
+  }
+
+  *{ box-sizing: border-box; }
+
+  html,body{
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Inter","Segoe UI",Roboto,Arial,sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Табличные/технические цифры — моноширинный шрифт для чисел KPI,
+     это и есть "фирменный" приём этого дашборда: цифры читаются
+     как показания приборов на складском табло. */
+  .num{
+    font-family: "Roboto Mono","SF Mono",Consolas,monospace;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  a{ color: inherit; }
+
+  /* ---------- ШАПКА ---------- */
+  header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding: 18px 28px;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #131920 0%, #10151b 100%);
+    position: sticky;
+    top:0;
+    z-index: 50;
+  }
+  .brand{
+    display:flex;
+    align-items:baseline;
+    gap:12px;
+  }
+  .brand .dot{
+    width:9px; height:9px;
+    background: var(--ok);
+    border-radius: 50%;
+    display:inline-block;
+    box-shadow: 0 0 8px var(--ok);
+    margin-right: 6px;
+  }
+  .brand h1{
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    margin:0;
+  }
+  .brand .sub{
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  header .meta{
+    text-align:right;
+    font-size: 12px;
+    color: var(--text-dim);
+    line-height:1.5;
+  }
+  header .meta b{ color: var(--text); }
+
+  /* ---------- ОБЩИЙ КОНТЕЙНЕР ---------- */
+  main{
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 24px 28px 60px;
+  }
+
+  /* ---------- ПАНЕЛЬ ФИЛЬТРА ПО ДАТАМ ---------- */
+  .filter-bar{
+    display:flex;
+    align-items:flex-end;
+    flex-wrap: wrap;
+    gap: 18px;
+    padding: 14px 18px;
+    margin-bottom: 4px;
+  }
+  .filter-field{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .filter-field label{
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--text-faint);
+    font-weight:600;
+  }
+  .filter-field input[type="date"]{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-family: "Roboto Mono","SF Mono",Consolas,monospace;
+    font-size: 12.5px;
+    padding: 7px 9px;
+    border-radius: 3px;
+    color-scheme: dark;
+  }
+  .filter-field input[type="date"]:focus{
+    outline: none;
+    border-color: var(--progress);
+  }
+  .filter-presets{
+    display:flex;
+    gap:6px;
+    flex-wrap: wrap;
+  }
+  .preset-btn{
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 11.5px;
+    font-weight:600;
+    padding: 7px 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  .preset-btn:hover{ border-color: var(--progress); color: var(--text); }
+  .preset-btn.active{
+    background: var(--progress-dim);
+    border-color: var(--progress);
+    color: var(--text);
+  }
+  .filter-bar .apply-btn{
+    background: var(--ok);
+    border: 1px solid var(--ok);
+    color: #0b1e15;
+    font-size: 12px;
+    font-weight:700;
+    padding: 8px 16px;
+    border-radius: 3px;
+    cursor:pointer;
+    letter-spacing:0.02em;
+  }
+  .filter-bar .apply-btn:hover{ background: #58e0a3; }
+  .filter-bar .reset-btn{
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight:600;
+    padding: 8px 14px;
+    border-radius: 3px;
+    cursor:pointer;
+  }
+  .filter-bar .reset-btn:hover{ color: var(--text); border-color: var(--text-dim); }
+  .filter-status{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-left: auto;
+    align-self:center;
+  }
+  .filter-status b{ color: var(--text); }
+  .filter-hint{
+    font-size: 10.5px;
+    color: var(--text-faint);
+  }
+
+  .section-title{
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-faint);
+    margin: 34px 0 12px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+  }
+  .section-title::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background: var(--line);
+  }
+
+  /* ---------- ПАНЕЛИ / КАРТОЧКИ ---------- */
+  .panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+  }
+
+  /* ---------- ЛЕНТА ГЛАВНЫХ KPI ---------- */
+  .kpi-row{
+    display:grid;
+    grid-template-columns: 1.3fr repeat(5, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    overflow:hidden;
+  }
+  .kpi{
+    background: var(--panel);
+    padding: 18px 18px;
+    min-height: 118px;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+  }
+  .kpi .label{
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-faint);
+    font-weight:600;
+  }
+  .kpi .value{
+    font-size: 30px;
+    font-weight: 700;
+    line-height:1;
+    margin-top: 10px;
+  }
+  .kpi .foot{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+  .kpi.hero{
+    background: linear-gradient(135deg, #172a22 0%, var(--panel) 65%);
+  }
+  .kpi.hero .value{ font-size: 42px; }
+  .kpi.hero .value .unit{ font-size:20px; color:var(--text-dim); font-weight:600; }
+
+  /* Индикатор ворот отгрузки — фирменный элемент: горизонтальная
+     шкала-«шлагбаум» с делением на факт/цель, имитирует табло
+     контроля отгрузки на воротах склада. */
+  .gate{
+    margin-top: 10px;
+    height: 8px;
+    width: 100%;
+    background: var(--line-soft);
+    border-radius: 2px;
+    position: relative;
+    overflow:hidden;
+  }
+  .gate .fill{
+    height:100%;
+    background: linear-gradient(90deg, var(--ok), #58e0a3);
+    border-radius: 2px;
+  }
+  .gate .target-mark{
+    position:absolute;
+    top:-3px;
+    bottom:-3px;
+    width:2px;
+    background: var(--amber);
+  }
+
+  .val-ok{ color: var(--ok); }
+  .val-late{ color: var(--late); }
+  .val-progress{ color: var(--progress); }
+  .val-cancel{ color: var(--cancel); }
+  .val-priority{ color: var(--priority); }
+  .val-amber{ color: var(--amber); }
+
+  /* ---------- СЕТКА ГРАФИКОВ ---------- */
+  .grid-2{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .grid-3{
+    display:grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+  }
+  .chart-card{
+    padding: 16px 18px 12px;
+  }
+  .chart-card h3{
+    font-size: 13px;
+    font-weight:700;
+    margin: 0 0 3px;
+  }
+  .chart-card .desc{
+    font-size: 11.5px;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+  .chart-wrap{
+    position: relative;
+    height: 260px;
+  }
+  .chart-wrap.tall{ height: 320px; }
+  .chart-wrap.short{ height: 190px; }
+
+  /* ---------- БЛОК ПРИОРИТЕТНЫХ КЛИЕНТОВ ---------- */
+  .priority-band{
+    border: 1px solid var(--priority-dim);
+    background: linear-gradient(180deg, #182417 0%, var(--panel) 40%);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .priority-band .head{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom: 14px;
+  }
+  .priority-band .head .tag{
+    background: var(--priority);
+    color: #0f1a08;
+    font-size: 10.5px;
+    font-weight:800;
+    letter-spacing:0.06em;
+    padding: 3px 8px;
+    border-radius: 2px;
+    text-transform: uppercase;
+  }
+  .priority-band .head h3{
+    margin:0;
+    font-size: 14px;
+  }
+  .priority-band .head .n{
+    margin-left:auto;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  /* ---------- ТАБЛИЦА ПРОБЛЕМНЫХ ЗАКАЗОВ ---------- */
+  .table-wrap{
+    overflow-x:auto;
+  }
+  table{
+    width:100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+  }
+  thead th{
+    text-align:left;
+    font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-faint);
+    font-weight:700;
+    padding: 9px 12px;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+    position: sticky;
+    top:0;
+    background: var(--panel);
+  }
+  tbody td{
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line-soft);
+    white-space: nowrap;
+    color: var(--text);
+  }
+  tbody tr:hover{ background: var(--panel-2); }
+  .pill{
+    display:inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10.5px;
+    font-weight:700;
+    letter-spacing:0.02em;
+  }
+  .pill-late{ background: var(--late-dim); color: var(--late); }
+  .pill-priority{ background: var(--priority-dim); color: var(--priority); border:1px solid var(--priority); }
+
+  .scroll-table{
+    max-height: 420px;
+    overflow-y: auto;
+  }
+
+  footer{
+    text-align:center;
+    font-size: 11px;
+    color: var(--text-faint);
+    padding: 30px 0 10px;
+  }
+
+  /* ---------- СОСТОЯНИЯ ЗАГРУЗКИ / ОШИБКИ ---------- */
+  #loadState{
+    position:fixed; inset:0;
+    background: var(--bg);
+    display:flex; align-items:center; justify-content:center;
+    flex-direction:column;
+    gap:14px;
+    z-index: 999;
+    font-size:13px;
+    color: var(--text-dim);
+  }
+  #loadState .spinner{
+    width:26px;height:26px;
+    border-radius:50%;
+    border:2px solid var(--line);
+    border-top-color: var(--ok);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin{ to{ transform: rotate(360deg); } }
+  #loadState.error .spinner{ display:none; }
+  #loadState.error{ color: var(--late); }
+  #loadState pre{
+    max-width: 640px;
+    white-space: pre-wrap;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    text-align:left;
+    background: var(--panel);
+    border:1px solid var(--line);
+    padding: 12px 14px;
+    border-radius: 4px;
+  }
+
+  .hidden{ display:none !important; }
+
+  @media (max-width: 1100px){
+    .kpi-row{ grid-template-columns: repeat(2,1fr); grid-auto-rows: auto; }
+    .grid-2, .grid-3{ grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Экран загрузки / ошибки, показывается пока orders.csv не прочитан -->
+<div id="loadState">
+  <div class="spinner"></div>
+  <div id="loadStateText">Загрузка orders.csv…</div>
+</div>
+
+<div id="app" class="hidden">
+
+  <header>
+    <div class="brand">
+      <div>
+        <h1><span class="dot"></span>Дашборд отгрузок склада</h1>
+        <div class="sub">Контроль своевременности отгрузки заказов</div>
+      </div>
+    </div>
+    <div class="meta">
+      Период данных: <b id="metaPeriod">—</b><br>
+      Заказов в выборке: <b id="metaCount">—</b> · Обновлено: <b id="metaGenerated">—</b>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ================= ФИЛЬТР ПО ДАТАМ ================= -->
+    <!-- Фильтрация идёт по полю "Дата заказа": пользователь выбирает
+         диапазон дат создания заказа, и весь дашборд (KPI, графики,
+         таблицы) пересчитывается только по заказам, попавшим в диапазон. -->
+    <div class="panel filter-bar">
+      <div class="filter-field">
+        <label for="filterFrom">Дата заказа — от</label>
+        <input type="date" id="filterFrom">
+      </div>
+      <div class="filter-field">
+        <label for="filterTo">Дата заказа — до</label>
+        <input type="date" id="filterTo">
+      </div>
+      <div class="filter-field">
+        <label>Быстрый выбор</label>
+        <div class="filter-presets">
+          <button class="preset-btn" data-preset="today">Сегодня</button>
+          <button class="preset-btn" data-preset="7">7 дней</button>
+          <button class="preset-btn" data-preset="30">30 дней</button>
+          <button class="preset-btn active" data-preset="all">Весь период</button>
+        </div>
+      </div>
+      <button class="apply-btn" id="applyFilterBtn">Применить</button>
+      <button class="reset-btn" id="resetFilterBtn">Сбросить</button>
+      <div class="filter-status" id="filterStatus">Показан весь период</div>
+    </div>
+
+    <!-- ================= ГЛАВНЫЕ KPI ================= -->
+    <div class="kpi-row">
+
+      <div class="kpi hero">
+        <div class="label">Отгружено вовремя (допуск 30 мин)</div>
+        <div class="value"><span id="kpiOnTimePct" class="num">—</span><span class="unit">%</span></div>
+        <div class="gate">
+          <div id="kpiOnTimeGate" class="fill" style="width:0%"></div>
+        </div>
+        <div class="foot"><span id="kpiOnTimeCount" class="num">—</span> из <span id="kpiShippedTotal" class="num">—</span> отгруженных заказов</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Отгружено с опозданием</div>
+        <div class="value val-late num" id="kpiLateCount">—</div>
+        <div class="foot"><span id="kpiLatePct" class="num">—</span>% от отгруженных</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Всего заказов</div>
+        <div class="value num" id="kpiTotal">—</div>
+        <div class="foot">за период выборки</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">В работе (не отгружено)</div>
+        <div class="value val-progress num" id="kpiProgress">—</div>
+        <div class="foot">обработка / готов к отгрузке</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Аннулировано</div>
+        <div class="value val-cancel num" id="kpiCancelled">—</div>
+        <div class="foot">до/после сборки</div>
+      </div>
+
+      <div class="kpi">
+        <div class="label">Приоритетные (зелёные)</div>
+        <div class="value val-priority num" id="kpiPriorityTotal">—</div>
+        <div class="foot"><span id="kpiPriorityOnTimePct" class="num">—</span>% из них — вовремя</div>
+      </div>
+
+    </div>
+
+    <!-- ================= ВРЕМЯ ОБРАБОТКИ ЗАКАЗА ================= -->
+    <!-- "Время обработки" = интервал от создания заказа (Дата заказа)
+         до фактической отгрузки (Фактическая дата отгрузки).
+         Считается только по реально отгруженным заказам (есть обе даты).
+         Показываем среднее и медиану — среднее чувствительно к редким
+         очень долгим заказам, медиана даёт более честную "типичную"
+         картину для руководства. -->
+    <div class="section-title">Время обработки заказа</div>
+    <div class="grid-3">
+      <div class="panel" style="padding:18px;">
+        <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Среднее время обработки — все заказы</div>
+        <div class="value num" style="font-size:32px;font-weight:700;margin-top:10px;" id="procAvgAll">—</div>
+        <div class="foot" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">медиана: <span class="num" id="procMedAll">—</span> · заказов в расчёте: <span class="num" id="procNAll">—</span></div>
+      </div>
+      <div class="panel" style="padding:18px;border:1px solid var(--priority-dim);">
+        <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Среднее время обработки — приоритетные (зелёные)</div>
+        <div class="value num val-priority" style="font-size:32px;font-weight:700;margin-top:10px;" id="procAvgPrio">—</div>
+        <div class="foot" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;">медиана: <span class="num" id="procMedPrio">—</span> · заказов в расчёте: <span class="num" id="procNPrio">—</span></div>
+      </div>
+      <div class="panel" style="padding:18px;">
+        <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Разница приоритетные vs остальные</div>
+        <div class="value num" style="font-size:32px;font-weight:700;margin-top:10px;" id="procDelta">—</div>
+        <div class="foot" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;" id="procDeltaHint">по среднему времени обработки</div>
+      </div>
+    </div>
+    <div class="panel chart-card" style="margin-top:16px;">
+      <h3>Среднее время обработки по дням</h3>
+      <div class="desc">Дата заказа → сравнение всех заказов и приоритетных (зелёных) клиентов, часы</div>
+      <div class="chart-wrap short"><canvas id="chartProcTime"></canvas></div>
+    </div>
+
+    <!-- ================= ОСНОВНЫЕ ГРАФИКИ ================= -->
+    <div class="section-title">Своевременность отгрузки</div>
+    <div class="grid-3">
+      <div class="panel chart-card">
+        <h3>Статус отгрузки, доля заказов</h3>
+        <div class="desc">Вовремя / с опозданием / в работе / аннулировано</div>
+        <div class="chart-wrap"><canvas id="chartStatusDonut"></canvas></div>
+      </div>
+      <div class="panel chart-card" style="grid-column: span 2;">
+        <h3>Динамика по дням: план vs факт отгрузки</h3>
+        <div class="desc">Количество заказов, отгруженных вовремя и с опозданием, по дню плановой отгрузки</div>
+        <div class="chart-wrap"><canvas id="chartTimeline"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Структура заказов</div>
+    <div class="grid-3">
+      <div class="panel chart-card">
+        <h3>По типу доставки</h3>
+        <div class="desc">Кол-во заказов по перевозчику</div>
+        <div class="chart-wrap short"><canvas id="chartCarrier"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>По региону</h3>
+        <div class="desc">Москва / МО / Регионы — доля вовремя</div>
+        <div class="chart-wrap short"><canvas id="chartRegion"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>Текущий статус склада</h3>
+        <div class="desc">Разбивка по стадии обработки</div>
+        <div class="chart-wrap short"><canvas id="chartWarehouseStatus"></canvas></div>
+      </div>
+    </div>
+
+    <div class="section-title">Опоздания — детализация</div>
+    <div class="grid-2">
+      <div class="panel chart-card">
+        <h3>Распределение опозданий по величине</h3>
+        <div class="desc">На сколько часов факт отгрузки превысил план (сверх допуска 30 мин)</div>
+        <div class="chart-wrap"><canvas id="chartLateBuckets"></canvas></div>
+      </div>
+      <div class="panel chart-card">
+        <h3>Топ-10 контрагентов по опозданиям</h3>
+        <div class="desc">Клиенты с наибольшим числом просроченных отгрузок</div>
+        <div class="chart-wrap"><canvas id="chartTopLateClients"></canvas></div>
+      </div>
+    </div>
+
+    <!-- ================= ПРИОРИТЕТНЫЕ КЛИЕНТЫ ================= -->
+    <div class="section-title">Особый контроль</div>
+    <div class="priority-band">
+      <div class="head">
+        <span class="tag">Зелёный приоритет</span>
+        <h3>Отгрузки приоритетных клиентов</h3>
+        <span class="n"><span id="prioTotalN" class="num">—</span> заказов в выборке</span>
+      </div>
+      <div class="grid-3" style="margin-bottom:16px;">
+        <div class="panel" style="padding:14px 16px;">
+          <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">Вовремя</div>
+          <div class="value num val-ok" style="font-size:26px;font-weight:700;margin-top:6px;" id="prioOnTime">—</div>
+        </div>
+        <div class="panel" style="padding:14px 16px;">
+          <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">С опозданием</div>
+          <div class="value num val-late" style="font-size:26px;font-weight:700;margin-top:6px;" id="prioLate">—</div>
+        </div>
+        <div class="panel" style="padding:14px 16px;">
+          <div class="label" style="font-size:10.5px;text-transform:uppercase;color:var(--text-faint);font-weight:600;">В работе</div>
+          <div class="value num val-progress" style="font-size:26px;font-weight:700;margin-top:6px;" id="prioProgress">—</div>
+        </div>
+      </div>
+      <div class="table-wrap scroll-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Номер заказа</th>
+              <th>Контрагент</th>
+              <th>Регион</th>
+              <th>Плановая дата</th>
+              <th>Фактическая дата</th>
+              <th>Статус</th>
+            </tr>
+          </thead>
+          <tbody id="prioTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= ТАБЛИЦА ПРОБЛЕМНЫХ ЗАКАЗОВ ================= -->
+    <div class="section-title">Проблемные заказы (опоздание) — все</div>
+    <div class="panel" style="padding:16px 18px;">
+      <div class="table-wrap scroll-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Номер заказа</th>
+              <th>Контрагент</th>
+              <th>Регион</th>
+              <th>Тип доставки</th>
+              <th>Плановая дата</th>
+              <th>Фактическая дата</th>
+              <th>Опоздание</th>
+              <th>Приоритет</th>
+            </tr>
+          </thead>
+          <tbody id="lateTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <footer>
+      Данные читаются локально из orders.csv при открытии страницы. Колонка «Опоздание отгрузки» из файла не используется — статус своевременности рассчитывается напрямую по плановой и фактической датам отгрузки (допуск 30 минут).
+    </footer>
+
+  </main>
+</div>
+
+<script>
+/* =====================================================================
+   ЛОГИКА ДАШБОРДА ОТГРУЗОК СКЛАДА
+   ---------------------------------------------------------------------
+   Общий план:
+   1. Загружаем orders.csv (лежит рядом с index.html) через fetch.
+   2. Парсим его PapaParse'ом (разделитель ";", UTF-8 с BOM).
+   3. Очищаем значения от HTML-тегов <font color=...> — они в CSV
+      используются просто как способ подсветить статус цветом в
+      исходной системе, для нас это чистый текст.
+   4. Классифицируем каждый заказ:
+        - ОТГРУЖЕН + факт <= план + 30 мин  → "вовремя"
+        - ОТГРУЖЕН + факт >  план + 30 мин  → "опоздание"
+        - статус АННУЛИРОВАН (до/после сборки) → "аннулирован"
+        - всё остальное (В ОБРАБОТКЕ, ГОТОВ К ОТГРУЗКЕ, СОЗДАН,
+          либо ОТГРУЖЕН без фактической даты) → "в работе"
+      Важно: колонку "Опоздание отгрузки" из файла НЕ используем —
+      по условию задачи она работает некорректно.
+   5. Считаем KPI и строим графики (Chart.js) + таблицы.
+   ===================================================================== */
+
+// ---------- НАСТРОЙКИ ----------
+const CSV_PATH = 'orders.csv';       // файл должен лежать рядом с index.html
+const TOLERANCE_MS = 30 * 60 * 1000; // допуск 30 минут в миллисекундах
+
+// Индексы колонок в CSV (0-based), см. заголовок файла orders.csv
+const COL = {
+  deliveryType:   0,  // Тип доставки
+  orderNumber:    1,  // Номер заказа
+  saleNumber:     2,  // Номер реализации
+  warehouseId:    3,  // ID заказа склада
+  orderDate:      4,  // Дата заказа
+  region:         7,  // Регион
+  address:        8,  // Адрес получателя
+  qty:            9,  // Кол-во штук товара
+  labelsQty:     10,  // Кол-во этикеток
+  warehouseName: 11,  // Склад обработки
+  warehouseStatus:13, // Статус склада
+  contragent:    14,  // Контрагент
+  priorityColor: 15,  // Цвет приоритета
+  cancelDate:    17,  // Дата аннулирования
+  planDate:      18,  // Плановая дата отгрузки
+  factDate:      19,  // Фактическая дата отгрузки
+  // "Опоздание отгрузки" (индекс 20) сознательно не используется —
+  // по условию задачи колонка работает некорректно.
+};
+
+// ---------- УТИЛИТЫ ----------
+
+// Убирает HTML-теги вида <font color=green><b>ОТГРУЖЕН</b></font> -> "ОТГРУЖЕН"
+function stripHtml(s){
+  if (!s) return '';
+  return s.replace(/<[^>]*>/g, '').trim();
+}
+
+// Парсит дату в формате "ДД.ММ.ГГГГ ЧЧ:ММ:СС" -> объект Date
+// (JS Date не понимает такой формат нативно, поэтому парсим вручную)
+function parseRuDate(s){
+  if (!s) return null;
+  s = s.trim();
+  const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, dd, mm, yyyy, HH, MM, SS] = m;
+  return new Date(+yyyy, +mm - 1, +dd, +HH, +MM, +SS);
+}
+
+function fmtDate(d){
+  if (!d) return '—';
+  const pad = n => String(n).padStart(2,'0');
+  return `${pad(d.getDate())}.${pad(d.getMonth()+1)}.${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function fmtDuration(ms){
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m} мин`;
+  return `${h} ч ${m} мин`;
+}
+
+function isPriority(rawValue){
+  // Значение из колонки "Цвет приоритета", после очистки от HTML.
+  // Ожидаем "ЗЕЛЁНЫЙ" (с Ё) — сравниваем без учёта регистра
+  // и допускаем вариант написания через Е на всякий случай.
+  const v = stripHtml(rawValue).toUpperCase();
+  return v === 'ЗЕЛЁНЫЙ' || v === 'ЗЕЛЕНЫЙ';
+}
+
+// Приводит "Статус склада" к одному из канонических значений
+function normalizeStatus(rawValue){
+  const v = stripHtml(rawValue).toUpperCase();
+  if (v.includes('ОТГРУЖЕН')) return 'ОТГРУЖЕН';
+  if (v.includes('АННУЛИРОВАН ДО СБОРКИ')) return 'АННУЛИРОВАН_ДО';
+  if (v.includes('АННУЛИРОВАН ПОСЛЕ СБОРКИ')) return 'АННУЛИРОВАН_ПОСЛЕ';
+  if (v.includes('ГОТОВ К ОТГРУЗКЕ')) return 'ГОТОВ_К_ОТГРУЗКЕ';
+  if (v.includes('В ОБРАБОТКЕ')) return 'В_ОБРАБОТКЕ';
+  if (v.includes('СОЗДАН')) return 'СОЗДАН';
+  return v || 'НЕИЗВЕСТНО';
+}
+
+// ---------- ОСНОВНАЯ КЛАССИФИКАЦИЯ ЗАКАЗА ----------
+// Возвращает один из статусов:
+//   'on_time'    — отгружен вовремя (с учётом допуска 30 мин)
+//   'late'       — отгружен с опозданием
+//   'in_progress'— ещё не отгружен, но не аннулирован
+//   'cancelled'  — аннулирован (до или после сборки)
+//   'no_plan'    — отгружен, но нет плановой даты (не с чем сравнивать)
+function classifyOrder(order){
+  const status = normalizeStatus(order[COL.warehouseStatus]);
+
+  if (status === 'АННУЛИРОВАН_ДО' || status === 'АННУЛИРОВАН_ПОСЛЕ'){
+    return 'cancelled';
+  }
+
+  const factDate = parseRuDate(order[COL.factDate]);
+
+  // Если статус ОТГРУЖЕН и есть фактическая дата — сравниваем с планом
+  if (status === 'ОТГРУЖЕН' && factDate){
+    const planDate = parseRuDate(order[COL.planDate]);
+    if (!planDate) return 'no_plan';
+    const diff = factDate.getTime() - planDate.getTime();
+    return diff <= TOLERANCE_MS ? 'on_time' : 'late';
+  }
+
+  // Во всех остальных случаях (В ОБРАБОТКЕ, ГОТОВ К ОТГРУЗКЕ, СОЗДАН,
+  // либо "ОТГРУЖЕН" без фактической даты — на всякий случай) считаем,
+  // что заказ ещё в работе.
+  return 'in_progress';
+}
+
+// ---------- ЗАГРУЗКА И ПАРСИНГ CSV ----------
+
+async function loadOrders(){
+  const resp = await fetch(CSV_PATH);
+  if (!resp.ok){
+    throw new Error(`Не удалось загрузить ${CSV_PATH} (HTTP ${resp.status}). Убедитесь, что файл orders.csv лежит в той же папке, что и index.html, и что страница открыта через веб-сервер (не напрямую как file://).`);
+  }
+  const text = await resp.text();
+
+  const parsed = Papa.parse(text, {
+    delimiter: ';',
+    header: false,       // берём заголовок вручную, чтобы использовать константы COL по индексам
+    skipEmptyLines: true,
+  });
+
+  if (parsed.errors && parsed.errors.length){
+    // PapaParse может сообщать некритичные предупреждения о полях —
+    // не блокируем рендер, просто логируем в консоль.
+    console.warn('CSV parse warnings:', parsed.errors.slice(0, 5));
+  }
+
+  const rows = parsed.data;
+  // Первая строка — заголовок, отбрасываем её
+  const dataRows = rows.slice(1).filter(r => r.length > 1 && r[COL.orderNumber]);
+  return dataRows;
+}
+
+// ---------- ОБОГАЩЕНИЕ ДАННЫХ (выполняется один раз при загрузке) ----------
+// Разбираем сырые CSV-строки в удобные объекты с вычисленными полями:
+// статус (on_time/late/in_progress/cancelled/no_plan), флаг приоритета,
+// даты и время обработки заказа. Дальше фильтрация по датам работает
+// уже поверх этого готового массива — не нужно заново парсить CSV.
+function enrichOrders(orders){
+  return orders.map(o => {
+    const cls = classifyOrder(o);
+    const orderDate = parseRuDate(o[COL.orderDate]);
+    const planDate = parseRuDate(o[COL.planDate]);
+    const factDate = parseRuDate(o[COL.factDate]);
+    const lateMs = (cls === 'late' && planDate && factDate)
+      ? (factDate.getTime() - planDate.getTime())
+      : null;
+
+    // Время обработки заказа = от создания заказа до фактической отгрузки.
+    // Считаем только там, где заказ реально отгружен (есть обе даты) —
+    // для заказов "в работе" процесс ещё не завершён, среднее по ним
+    // считать некорректно (занизит цифру для незавершённых заказов).
+    const processingMs = (factDate && orderDate && factDate > orderDate)
+      ? (factDate.getTime() - orderDate.getTime())
+      : null;
+
+    return {
+      raw: o,
+      status: cls,
+      priority: isPriority(o[COL.priorityColor]),
+      warehouseStatus: normalizeStatus(o[COL.warehouseStatus]),
+      region: o[COL.region] || 'Не указан',
+      carrier: o[COL.deliveryType] || 'Не указан',
+      contragent: o[COL.contragent] || 'Не указан',
+      orderNumber: o[COL.orderNumber],
+      orderDate, planDate, factDate, lateMs, processingMs,
+      qty: parseInt(o[COL.qty], 10) || 0,
+    };
+  });
+}
+
+// Хранилище чартов Chart.js — нужно, чтобы при повторном рендере
+// (после смены фильтра) сначала уничтожать старые инстансы, иначе
+// Chart.js будет накладывать новые графики поверх старых на том же canvas.
+const chartInstances = {};
+function renderChart(canvasId, config){
+  if (chartInstances[canvasId]){
+    chartInstances[canvasId].destroy();
+  }
+  chartInstances[canvasId] = new Chart(document.getElementById(canvasId), config);
+}
+
+// Простая статистика по массиву чисел (миллисекунды)
+function average(arr){
+  if (!arr.length) return null;
+  return arr.reduce((a,b)=>a+b,0) / arr.length;
+}
+function median(arr){
+  if (!arr.length) return null;
+  const s = [...arr].sort((a,b)=>a-b);
+  const mid = Math.floor(s.length/2);
+  return s.length % 2 ? s[mid] : (s[mid-1]+s[mid])/2;
+}
+// Форматирует миллисекунды в "Ч ч М мин" для крупных KPI-цифр времени обработки
+function fmtHoursMin(ms){
+  if (ms == null) return '—';
+  const totalMin = Math.round(ms / 60000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return `${h} ч ${m} мин`;
+}
+
+// ---------- ПОСТРОЕНИЕ ДАШБОРДА (вызывается при каждом применении фильтра) ----------
+
+function buildDashboard(enriched){
+
+  const total = enriched.length;
+  const onTime   = enriched.filter(o => o.status === 'on_time');
+  const late     = enriched.filter(o => o.status === 'late');
+  const progress = enriched.filter(o => o.status === 'in_progress');
+  const cancelled= enriched.filter(o => o.status === 'cancelled');
+  const noPlan   = enriched.filter(o => o.status === 'no_plan');
+  const shippedTotal = onTime.length + late.length; // база для % своевременности
+  const onTimePct = shippedTotal ? (onTime.length / shippedTotal * 100) : 0;
+
+  const priorityOrders = enriched.filter(o => o.priority);
+  const priorityOnTime = priorityOrders.filter(o => o.status === 'on_time');
+  const priorityLate   = priorityOrders.filter(o => o.status === 'late');
+  const priorityProgress = priorityOrders.filter(o => o.status === 'in_progress');
+  const priorityShippedTotal = priorityOnTime.length + priorityLate.length;
+  const priorityOnTimePct = priorityShippedTotal ? (priorityOnTime.length / priorityShippedTotal * 100) : 0;
+
+  // ---------- ШАПКА: период данных ----------
+  const allOrderDates = enriched.map(o => o.orderDate).filter(Boolean);
+  if (allOrderDates.length){
+    const minD = new Date(Math.min(...allOrderDates));
+    const maxD = new Date(Math.max(...allOrderDates));
+    document.getElementById('metaPeriod').textContent =
+      `${minD.toLocaleDateString('ru-RU')} — ${maxD.toLocaleDateString('ru-RU')}`;
+  } else {
+    document.getElementById('metaPeriod').textContent = 'нет данных за выбранный диапазон';
+  }
+  document.getElementById('metaCount').textContent = total.toLocaleString('ru-RU');
+  document.getElementById('metaGenerated').textContent = new Date().toLocaleString('ru-RU');
+
+  // ---------- ГЛАВНЫЕ KPI ----------
+  document.getElementById('kpiOnTimePct').textContent = onTimePct.toFixed(1);
+  document.getElementById('kpiOnTimeGate').style.width = onTimePct.toFixed(1) + '%';
+  document.getElementById('kpiOnTimeCount').textContent = onTime.length.toLocaleString('ru-RU');
+  document.getElementById('kpiShippedTotal').textContent = shippedTotal.toLocaleString('ru-RU');
+
+  document.getElementById('kpiLateCount').textContent = late.length.toLocaleString('ru-RU');
+  document.getElementById('kpiLatePct').textContent = shippedTotal ? (late.length/shippedTotal*100).toFixed(1) : '0.0';
+
+  document.getElementById('kpiTotal').textContent = total.toLocaleString('ru-RU');
+  document.getElementById('kpiProgress').textContent = progress.length.toLocaleString('ru-RU');
+  document.getElementById('kpiCancelled').textContent = cancelled.length.toLocaleString('ru-RU');
+
+  document.getElementById('kpiPriorityTotal').textContent = priorityOrders.length.toLocaleString('ru-RU');
+  document.getElementById('kpiPriorityOnTimePct').textContent = priorityOnTimePct.toFixed(1);
+
+  // ---------- ВРЕМЯ ОБРАБОТКИ ЗАКАЗА ----------
+  // Берём processingMs только там, где он посчитан (заказ реально отгружен).
+  // Отдельно — для всех заказов и отдельно — только для приоритетных (зелёных).
+  const procAll  = enriched.map(o => o.processingMs).filter(v => v != null);
+  const procPrio = enriched.filter(o => o.priority).map(o => o.processingMs).filter(v => v != null);
+
+  const procAvgAllMs  = average(procAll);
+  const procMedAllMs  = median(procAll);
+  const procAvgPrioMs = average(procPrio);
+  const procMedPrioMs = median(procPrio);
+
+  document.getElementById('procAvgAll').textContent = fmtHoursMin(procAvgAllMs);
+  document.getElementById('procMedAll').textContent = fmtHoursMin(procMedAllMs);
+  document.getElementById('procNAll').textContent = procAll.length.toLocaleString('ru-RU');
+
+  document.getElementById('procAvgPrio').textContent = fmtHoursMin(procAvgPrioMs);
+  document.getElementById('procMedPrio').textContent = fmtHoursMin(procMedPrioMs);
+  document.getElementById('procNPrio').textContent = procPrio.length.toLocaleString('ru-RU');
+
+  // Разница в среднем времени обработки: приоритетные vs остальные (не приоритетные).
+  // Показываем знак и текст, чтобы сразу было видно, быстрее или медленнее
+  // обслуживаются приоритетные клиенты по сравнению с обычными.
+  const procNonPrio = enriched.filter(o => !o.priority).map(o => o.processingMs).filter(v => v != null);
+  const procAvgNonPrioMs = average(procNonPrio);
+  const deltaEl = document.getElementById('procDelta');
+  const deltaHintEl = document.getElementById('procDeltaHint');
+  if (procAvgPrioMs != null && procAvgNonPrioMs != null){
+    const deltaMs = procAvgPrioMs - procAvgNonPrioMs;
+    const faster = deltaMs < 0;
+    deltaEl.textContent = (faster ? '−' : '+') + fmtHoursMin(Math.abs(deltaMs));
+    deltaEl.className = 'value num ' + (faster ? 'val-ok' : 'val-late');
+    deltaEl.style.fontSize = '32px'; deltaEl.style.fontWeight = '700'; deltaEl.style.marginTop = '10px';
+    deltaHintEl.textContent = faster
+      ? 'приоритетные обрабатываются быстрее обычных'
+      : 'приоритетные обрабатываются медленнее обычных — требует внимания';
+  } else {
+    deltaEl.textContent = '—';
+    deltaHintEl.textContent = 'недостаточно данных для сравнения';
+  }
+
+  // ---------- ГРАФИК: среднее время обработки по дням ----------
+  // Группируем по дню "Дата заказа", считаем среднее время обработки (в часах)
+  // отдельно для всех заказов и отдельно для приоритетных.
+  const procByDay = {}; // { 'YYYY-MM-DD': { all:[ms...], prio:[ms...] } }
+  function dayKeyLocal(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  enriched.forEach(o => {
+    if (o.processingMs == null || !o.orderDate) return;
+    const key = dayKeyLocal(o.orderDate);
+    if (!procByDay[key]) procByDay[key] = { all: [], prio: [] };
+    procByDay[key].all.push(o.processingMs);
+    if (o.priority) procByDay[key].prio.push(o.processingMs);
+  });
+  const procDays = Object.keys(procByDay).sort();
+  const procDayLabels = procDays.map(k => { const [y,m,d]=k.split('-'); return `${d}.${m}`; });
+  const msToHours = ms => ms != null ? +(ms/3600000).toFixed(1) : null;
+
+  renderChart('chartProcTime', {
+    type: 'line',
+    data: {
+      labels: procDayLabels,
+      datasets: [
+        {
+          label: 'Все заказы, ч',
+          data: procDays.map(k => msToHours(average(procByDay[k].all))),
+          borderColor: '#5b9bd5', backgroundColor: 'rgba(91,155,213,0.12)',
+          tension: 0.25, fill: true, pointRadius: 3,
+        },
+        {
+          label: 'Приоритетные (зелёные), ч',
+          data: procDays.map(k => msToHours(average(procByDay[k].prio))),
+          borderColor: '#8fd14f', backgroundColor: 'rgba(143,209,79,0.12)',
+          tension: 0.25, fill: true, pointRadius: 3,
+        },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' }, beginAtZero:true, title:{display:true,text:'часы',color:'#93a0b0'} }
+      },
+      plugins: { legend:{ position:'bottom', labels:{ color:'#93a0b0', font:{size:10.5}, usePointStyle:true } } }
+    }
+  });
+
+  // ---------- ГРАФИК: донат по статусам ----------
+  renderChart('chartStatusDonut', {
+    type: 'doughnut',
+    data: {
+      labels: ['Вовремя', 'С опозданием', 'В работе', 'Аннулировано'],
+      datasets: [{
+        data: [onTime.length, late.length, progress.length, cancelled.length],
+        backgroundColor: ['#3dd68c', '#ff6b5e', '#5b9bd5', '#6b7585'],
+        borderColor: '#171e26',
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins: {
+        legend: { position:'bottom', labels:{ color:'#93a0b0', font:{size:11}, padding:14, usePointStyle:true } },
+        tooltip: { callbacks: {
+          label: ctx => ` ${ctx.label}: ${ctx.raw.toLocaleString('ru-RU')} (${(ctx.raw/total*100).toFixed(1)}%)`
+        }}
+      },
+      cutout: '68%',
+    }
+  });
+
+  // ---------- ГРАФИК: динамика по дням (план vs факт) ----------
+  // Группируем по дню ПЛАНОВОЙ даты отгрузки — так руководству видно,
+  // какой день был проблемным по исполнению плана.
+  const byDay = {}; // { 'YYYY-MM-DD': {onTime, late, progress} }
+  function dayKey(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  enriched.forEach(o => {
+    if (!o.planDate) return;
+    const key = dayKey(o.planDate);
+    if (!byDay[key]) byDay[key] = { onTime:0, late:0, progress:0 };
+    if (o.status === 'on_time') byDay[key].onTime++;
+    else if (o.status === 'late') byDay[key].late++;
+    else if (o.status === 'in_progress') byDay[key].progress++;
+  });
+  const sortedDays = Object.keys(byDay).sort();
+  const dayLabels = sortedDays.map(k => {
+    const [y,m,d] = k.split('-');
+    return `${d}.${m}`;
+  });
+
+  renderChart('chartTimeline', {
+    type: 'bar',
+    data: {
+      labels: dayLabels,
+      datasets: [
+        { label:'Вовремя', data: sortedDays.map(k=>byDay[k].onTime), backgroundColor:'#3dd68c', stack:'s' },
+        { label:'С опозданием', data: sortedDays.map(k=>byDay[k].late), backgroundColor:'#ff6b5e', stack:'s' },
+        { label:'В работе', data: sortedDays.map(k=>byDay[k].progress), backgroundColor:'#5b9bd5', stack:'s' },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { stacked:true, ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ color:'#232b35' }, title:{display:true,text:'Плановая дата отгрузки',color:'#5c6b7885'} },
+        y: { stacked:true, ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ color:'#232b35' }, beginAtZero:true }
+      },
+      plugins: {
+        legend: { position:'bottom', labels:{ color:'#93a0b0', font:{size:11}, usePointStyle:true } }
+      }
+    }
+  });
+
+  // ---------- ГРАФИК: по типу доставки ----------
+  const carrierCounts = {};
+  enriched.forEach(o => { carrierCounts[o.carrier] = (carrierCounts[o.carrier]||0)+1; });
+  const carrierEntries = Object.entries(carrierCounts).sort((a,b)=>b[1]-a[1]);
+
+  renderChart('chartCarrier', {
+    type: 'bar',
+    data: {
+      labels: carrierEntries.map(e=>e[0]),
+      datasets: [{ data: carrierEntries.map(e=>e[1]), backgroundColor:'#5b9bd5', borderRadius:2 }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' } },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } }
+      },
+      plugins: { legend:{ display:false } }
+    }
+  });
+
+  // ---------- ГРАФИК: по региону (доля вовремя) ----------
+  const regionStats = {}; // { region: {onTime, late} }
+  enriched.forEach(o => {
+    if (o.status !== 'on_time' && o.status !== 'late') return;
+    if (!regionStats[o.region]) regionStats[o.region] = { onTime:0, late:0 };
+    regionStats[o.region][o.status === 'on_time' ? 'onTime' : 'late']++;
+  });
+  const regionEntries = Object.entries(regionStats);
+
+  renderChart('chartRegion', {
+    type: 'bar',
+    data: {
+      labels: regionEntries.map(e=>e[0]),
+      datasets: [
+        { label:'Вовремя', data: regionEntries.map(e=>e[1].onTime), backgroundColor:'#3dd68c', stack:'r' },
+        { label:'Опоздание', data: regionEntries.map(e=>e[1].late), backgroundColor:'#ff6b5e', stack:'r' },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { stacked:true, ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } },
+        y: { stacked:true, ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' } }
+      },
+      plugins: { legend:{ position:'bottom', labels:{ color:'#93a0b0', font:{size:10}, usePointStyle:true } } }
+    }
+  });
+
+  // ---------- ГРАФИК: текущий статус склада ----------
+  const whStatusLabels = {
+    'ОТГРУЖЕН':'Отгружен', 'В_ОБРАБОТКЕ':'В обработке',
+    'ГОТОВ_К_ОТГРУЗКЕ':'Готов к отгрузке', 'СОЗДАН':'Создан',
+    'АННУЛИРОВАН_ДО':'Аннулирован (до сборки)', 'АННУЛИРОВАН_ПОСЛЕ':'Аннулирован (после сборки)'
+  };
+  const whCounts = {};
+  enriched.forEach(o => { whCounts[o.warehouseStatus] = (whCounts[o.warehouseStatus]||0)+1; });
+  const whEntries = Object.entries(whCounts).sort((a,b)=>b[1]-a[1]);
+  const whColors = {
+    'ОТГРУЖЕН':'#3dd68c','В_ОБРАБОТКЕ':'#f0b429','ГОТОВ_К_ОТГРУЗКЕ':'#5b9bd5',
+    'СОЗДАН':'#93a0b0','АННУЛИРОВАН_ДО':'#6b7585','АННУЛИРОВАН_ПОСЛЕ':'#4a5261'
+  };
+
+  renderChart('chartWarehouseStatus', {
+    type: 'bar',
+    data: {
+      labels: whEntries.map(e=>whStatusLabels[e[0]]||e[0]),
+      datasets: [{ data: whEntries.map(e=>e[1]), backgroundColor: whEntries.map(e=>whColors[e[0]]||'#5b9bd5'), borderRadius:2 }]
+    },
+    options: {
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' } },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } }
+      },
+      plugins: { legend:{ display:false } }
+    }
+  });
+
+  // ---------- ГРАФИК: величина опоздания (гистограмма по бакетам) ----------
+  const buckets = [
+    { label:'до 1 ч', min:0, max:60*60*1000 },
+    { label:'1–3 ч', min:60*60*1000, max:3*60*60*1000 },
+    { label:'3–6 ч', min:3*60*60*1000, max:6*60*60*1000 },
+    { label:'6–24 ч', min:6*60*60*1000, max:24*60*60*1000 },
+    { label:'> 24 ч', min:24*60*60*1000, max:Infinity },
+  ];
+  const bucketCounts = buckets.map(b =>
+    late.filter(o => o.lateMs > b.min && o.lateMs <= b.max).length
+  );
+
+  renderChart('chartLateBuckets', {
+    type: 'bar',
+    data: {
+      labels: buckets.map(b=>b.label),
+      datasets: [{ data: bucketCounts, backgroundColor:'#ff6b5e', borderRadius:2 }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ display:false } },
+        y: { ticks:{ color:'#93a0b0', font:{size:11} }, grid:{ color:'#232b35' }, beginAtZero:true }
+      },
+      plugins: {
+        legend:{ display:false },
+        tooltip: { callbacks:{ label: ctx => ` ${ctx.raw.toLocaleString('ru-RU')} заказов` } }
+      }
+    }
+  });
+
+  // ---------- ГРАФИК: топ-10 контрагентов по опозданиям ----------
+  const lateByContragent = {};
+  late.forEach(o => { lateByContragent[o.contragent] = (lateByContragent[o.contragent]||0)+1; });
+  const topLate = Object.entries(lateByContragent).sort((a,b)=>b[1]-a[1]).slice(0,10);
+
+  renderChart('chartTopLateClients', {
+    type: 'bar',
+    data: {
+      labels: topLate.map(e => e[0].length > 28 ? e[0].slice(0,26)+'…' : e[0]),
+      datasets: [{ data: topLate.map(e=>e[1]), backgroundColor:'#ff6b5e', borderRadius:2 }]
+    },
+    options: {
+      indexAxis:'y',
+      responsive:true, maintainAspectRatio:false,
+      scales: {
+        x: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ color:'#232b35' }, beginAtZero:true },
+        y: { ticks:{ color:'#93a0b0', font:{size:10} }, grid:{ display:false } }
+      },
+      plugins: { legend:{ display:false } }
+    }
+  });
+
+  // ---------- ТАБЛИЦА: приоритетные клиенты ----------
+  const prioBody = document.getElementById('prioTableBody');
+  document.getElementById('prioTotalN').textContent = priorityOrders.length.toLocaleString('ru-RU');
+  document.getElementById('prioOnTime').textContent = priorityOnTime.length.toLocaleString('ru-RU');
+  document.getElementById('prioLate').textContent = priorityLate.length.toLocaleString('ru-RU');
+  document.getElementById('prioProgress').textContent = priorityProgress.length.toLocaleString('ru-RU');
+
+  // Показываем в первую очередь проблемные (опоздавшие) приоритетные заказы,
+  // затем те что в работе — это то, за чем нужно следить в первую очередь.
+  const prioSorted = [...priorityLate, ...priorityProgress, ...priorityOnTime].slice(0, 200);
+  prioBody.innerHTML = prioSorted.map(o => {
+    const statusLabel = o.status === 'on_time' ? '<span class="pill" style="background:#235a45;color:#3dd68c;">Вовремя</span>'
+      : o.status === 'late' ? '<span class="pill pill-late">Опоздание</span>'
+      : '<span class="pill" style="background:#2b4360;color:#5b9bd5;">В работе</span>';
+    return `<tr>
+      <td>${o.orderNumber}</td>
+      <td>${o.contragent}</td>
+      <td>${o.region}</td>
+      <td class="num">${fmtDate(o.planDate)}</td>
+      <td class="num">${fmtDate(o.factDate)}</td>
+      <td>${statusLabel}</td>
+    </tr>`;
+  }).join('');
+
+  // ---------- ТАБЛИЦА: все проблемные (опоздавшие) заказы ----------
+  const lateBody = document.getElementById('lateTableBody');
+  const lateSorted = [...late].sort((a,b) => (b.lateMs||0) - (a.lateMs||0)); // сначала самые большие опоздания
+  lateBody.innerHTML = lateSorted.map(o => `
+    <tr>
+      <td>${o.orderNumber}</td>
+      <td>${o.contragent}</td>
+      <td>${o.region}</td>
+      <td>${o.carrier}</td>
+      <td class="num">${fmtDate(o.planDate)}</td>
+      <td class="num">${fmtDate(o.factDate)}</td>
+      <td class="num val-late">${fmtDuration(o.lateMs)}</td>
+      <td>${o.priority ? '<span class="pill pill-priority">Зелёный</span>' : ''}</td>
+    </tr>
+  `).join('');
+}
+
+// =====================================================================
+// ФИЛЬТР ПО ДИАПАЗОНУ ДАТ
+// ---------------------------------------------------------------------
+// Фильтруем по полю "Дата заказа" (orderDate). Пользователь выбирает
+// диапазон через два <input type="date">, либо через кнопки быстрого
+// выбора (сегодня / 7 дней / 30 дней / весь период). Диапазон включает
+// обе границы целиком (00:00:00 первого дня — 23:59:59 последнего).
+// =====================================================================
+
+let ALL_ORDERS = []; // все обогащённые заказы, загружаются один раз при старте
+
+// Возвращает подмножество ALL_ORDERS, чья orderDate попадает в [from, to]
+// (Date-объекты или null, если граница не задана — тогда не ограничиваем).
+function filterOrdersByDateRange(from, to){
+  return ALL_ORDERS.filter(o => {
+    if (!o.orderDate) return false;
+    if (from && o.orderDate < from) return false;
+    if (to && o.orderDate > to) return false;
+    return true;
+  });
+}
+
+// Преобразует значение <input type="date"> ("YYYY-MM-DD") в начало/конец дня
+function inputToStartOfDay(value){
+  if (!value) return null;
+  const [y,m,d] = value.split('-').map(Number);
+  return new Date(y, m-1, d, 0,0,0,0);
+}
+function inputToEndOfDay(value){
+  if (!value) return null;
+  const [y,m,d] = value.split('-').map(Number);
+  return new Date(y, m-1, d, 23,59,59,999);
+}
+function dateToInputValue(d){
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+
+// Применяет текущие значения полей фильтра: пересчитывает дашборд
+// и обновляет строку статуса ("Показано N заказов за ...").
+function applyDateFilter(){
+  const fromInput = document.getElementById('filterFrom').value;
+  const toInput = document.getElementById('filterTo').value;
+  const from = inputToStartOfDay(fromInput);
+  const to = inputToEndOfDay(toInput);
+
+  const filtered = filterOrdersByDateRange(from, to);
+  buildDashboard(filtered);
+
+  const statusEl = document.getElementById('filterStatus');
+  if (!from && !to){
+    statusEl.innerHTML = `Показан весь период · <b>${ALL_ORDERS.length.toLocaleString('ru-RU')}</b> заказов`;
+  } else {
+    const fromLabel = from ? from.toLocaleDateString('ru-RU') : '…';
+    const toLabel = to ? to.toLocaleDateString('ru-RU') : '…';
+    statusEl.innerHTML = `${fromLabel} — ${toLabel} · <b>${filtered.length.toLocaleString('ru-RU')}</b> заказов`;
+  }
+}
+
+// Настраивает быстрые пресеты диапазона (сегодня / 7 дней / 30 дней / весь период)
+// относительно самой поздней даты заказа в файле — это надёжнее, чем
+// брать текущую дату браузера, т.к. данные могут быть выгружены не сегодня.
+function setupPresets(maxOrderDate){
+  const presetButtons = document.querySelectorAll('.preset-btn');
+  presetButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      presetButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const preset = btn.dataset.preset;
+      const fromInput = document.getElementById('filterFrom');
+      const toInput = document.getElementById('filterTo');
+
+      if (preset === 'all'){
+        fromInput.value = '';
+        toInput.value = '';
+      } else if (preset === 'today'){
+        fromInput.value = dateToInputValue(maxOrderDate);
+        toInput.value = dateToInputValue(maxOrderDate);
+      } else {
+        // '7' или '30' — последние N дней, считая от самой поздней даты заказа
+        const days = parseInt(preset, 10);
+        const fromDate = new Date(maxOrderDate);
+        fromDate.setDate(fromDate.getDate() - (days - 1));
+        fromInput.value = dateToInputValue(fromDate);
+        toInput.value = dateToInputValue(maxOrderDate);
+      }
+      applyDateFilter();
+    });
+  });
+
+  // Если пользователь вручную меняет поля дат — снимаем подсветку с пресетов,
+  // т.к. диапазон больше не соответствует ни одному из них.
+  ['filterFrom','filterTo'].forEach(id => {
+    document.getElementById(id).addEventListener('change', () => {
+      presetButtons.forEach(b => b.classList.remove('active'));
+    });
+  });
+}
+
+// ---------- ТОЧКА ВХОДА ----------
+
+async function init(){
+  const loadState = document.getElementById('loadState');
+  const loadStateText = document.getElementById('loadStateText');
+  try {
+    const orders = await loadOrders();
+    if (!orders.length){
+      throw new Error('Файл orders.csv загружен, но не удалось распознать ни одной строки данных. Проверьте формат файла.');
+    }
+
+    // Обогащаем данные один раз — дальше фильтр работает поверх готового массива
+    ALL_ORDERS = enrichOrders(orders);
+
+    // Определяем границы доступных дат заказа — используются для
+    // ограничения <input type="date"> и для расчёта пресетов
+    const orderDates = ALL_ORDERS.map(o => o.orderDate).filter(Boolean);
+    if (orderDates.length){
+      const minDate = new Date(Math.min(...orderDates));
+      const maxDate = new Date(Math.max(...orderDates));
+      const fromInput = document.getElementById('filterFrom');
+      const toInput = document.getElementById('filterTo');
+      fromInput.min = dateToInputValue(minDate);
+      fromInput.max = dateToInputValue(maxDate);
+      toInput.min = dateToInputValue(minDate);
+      toInput.max = dateToInputValue(maxDate);
+
+      setupPresets(maxDate);
+    }
+
+    // Кнопки "Применить" и "Сбросить"
+    document.getElementById('applyFilterBtn').addEventListener('click', applyDateFilter);
+    document.getElementById('resetFilterBtn').addEventListener('click', () => {
+      document.getElementById('filterFrom').value = '';
+      document.getElementById('filterTo').value = '';
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector('.preset-btn[data-preset="all"]').classList.add('active');
+      applyDateFilter();
+    });
+
+    // Первый рендер — весь период
+    buildDashboard(ALL_ORDERS);
+    document.getElementById('filterStatus').innerHTML =
+      `Показан весь период · <b>${ALL_ORDERS.length.toLocaleString('ru-RU')}</b> заказов`;
+
+    loadState.classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+  } catch (err){
+    console.error(err);
+    loadState.classList.add('error');
+    loadStateText.textContent = 'Не удалось построить дашборд';
+    const pre = document.createElement('pre');
+    pre.textContent = err.message || String(err);
+    loadState.appendChild(pre);
+  }
+}
+
+init();
+</script>
+
+</body>
+</html>
