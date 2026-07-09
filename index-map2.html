@@ -1,0 +1,1603 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Тепловая карта 09-07 22-53</title>
+
+    <!-- ====== ВНЕШНИЕ БИБЛИОТЕКИ ====== -->
+    <!-- Leaflet (карта) -->
+    <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+    </script>
+    <!-- Leaflet.heat (тепловая карта) -->
+    <script src="https://unpkg.com/leaflet-heat@0.2.0/dist/leaflet-heat.js">
+    </script>
+    <!-- Chart.js (графики) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js">
+    </script>
+    <!-- Papa Parse (CSV-парсер) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js">
+    </script>
+
+    <style>
+        /* ====== ОБЩИЙ СТИЛЬ ====== */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+            background: #0b0e14;
+            color: #e8edf5;
+            padding: 20px 24px 40px;
+            min-height: 100vh;
+        }
+
+        /* ====== ЗАГОЛОВОК ====== */
+        .dashboard-header {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 28px;
+            border-bottom: 1px solid #2a313c;
+            padding-bottom: 16px;
+        }
+        .dashboard-header h1 {
+            font-weight: 600;
+            font-size: 26px;
+            letter-spacing: 0.3px;
+            background: linear-gradient(135deg, #f0c27f, #fc5c7d);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .dashboard-header .sub {
+            font-size: 14px;
+            color: #8892a8;
+            margin-top: 4px;
+        }
+        .header-right {
+            text-align: right;
+            font-size: 14px;
+            color: #9aa4b8;
+        }
+        .header-right strong {
+            color: #d4dcec;
+        }
+
+        /* ====== KPI-КАРТОЧКИ ====== */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 28px;
+        }
+        .kpi-card {
+            background: #141a24;
+            border-radius: 14px;
+            padding: 18px 16px 14px;
+            border: 1px solid #262e3a;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            transition: transform 0.15s;
+        }
+        .kpi-card:hover {
+            transform: translateY(-2px);
+            border-color: #3f4a5a;
+        }
+        .kpi-card .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #8892a8;
+        }
+        .kpi-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-top: 6px;
+            color: #f0f4fc;
+        }
+        .kpi-card .value .unit {
+            font-size: 14px;
+            font-weight: 400;
+            color: #8892a8;
+            margin-left: 4px;
+        }
+        .kpi-card .sub {
+            font-size: 13px;
+            color: #6b7a90;
+            margin-top: 4px;
+        }
+
+        /* ====== СЕТКА ДЭШБОРДА ====== */
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 24px;
+        }
+
+        /* Основная карта – занимает две колонки в широком режиме */
+        .map-wrapper {
+            background: #10161e;
+            border-radius: 18px;
+            border: 1px solid #262e3a;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        }
+        .map-wrapper .map-title {
+            padding: 16px 20px 8px;
+            font-size: 16px;
+            font-weight: 500;
+            color: #c8d2e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .map-wrapper .map-title small {
+            font-weight: 400;
+            font-size: 13px;
+            color: #6b7a90;
+        }
+        #heatmap {
+            height: 520px;
+            width: 100%;
+            background: #0a0e14;
+            cursor: crosshair;
+        }
+
+        /* ====== БЛОК С ГРАФИКАМИ ====== */
+        .charts-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+        }
+        .chart-card {
+            background: #141a24;
+            border-radius: 18px;
+            border: 1px solid #262e3a;
+            padding: 18px 16px 12px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+        .chart-card h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #b0bed0;
+            margin-bottom: 10px;
+            letter-spacing: 0.3px;
+        }
+        .chart-card .chart-container {
+            position: relative;
+            height: 200px;
+        }
+        .chart-card .chart-container.pie {
+            height: 180px;
+        }
+        .chart-card .chart-container.tall {
+            height: 240px;
+        }
+
+        /* ====== ТАБЛИЦА ====== */
+        .table-wrapper {
+            background: #141a24;
+            border-radius: 18px;
+            border: 1px solid #262e3a;
+            padding: 16px 16px 8px;
+            overflow: auto;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+        .table-wrapper h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: #b0bed0;
+            margin-bottom: 10px;
+        }
+        .table-wrapper table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .table-wrapper th {
+            text-align: left;
+            padding: 8px 6px 6px 0;
+            color: #8892a8;
+            font-weight: 500;
+            border-bottom: 1px solid #262e3a;
+            white-space: nowrap;
+        }
+        .table-wrapper td {
+            padding: 6px 6px 6px 0;
+            border-bottom: 1px solid #1f2733;
+            color: #d4dcec;
+            white-space: nowrap;
+        }
+        .table-wrapper tr:hover td {
+            background: #1a222e;
+        }
+        .table-wrapper .num {
+            font-family: 'JetBrains Mono', monospace;
+            text-align: right;
+        }
+
+        /* ====== АДАПТИВ ====== */
+        @media (max-width: 820px) {
+            .charts-row {
+                grid-template-columns: 1fr;
+            }
+            .dashboard-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 8px;
+            }
+            .header-right {
+                text-align: left;
+                width: 100%;
+            }
+            #heatmap {
+                height: 380px;
+            }
+            .kpi-grid {
+                grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            }
+        }
+        @media (max-width: 480px) {
+            body {
+                padding: 12px 12px 30px;
+            }
+            #heatmap {
+                height: 300px;
+            }
+            .kpi-card .value {
+                font-size: 22px;
+            }
+        }
+
+        /* ====== СКРОЛЛБАР ====== */
+        ::-webkit-scrollbar {
+            width: 4px;
+            height: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #141a24;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #3f4a5a;
+            border-radius: 8px;
+        }
+
+        /* Лоадер */
+        .loader {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #6b7a90;
+            font-size: 15px;
+            gap: 12px;
+        }
+        .loader .spinner {
+            width: 28px;
+            height: 28px;
+            border: 3px solid #262e3a;
+            border-top-color: #f0c27f;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .badge {
+            background: #1f2733;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 12px;
+            color: #9aa4b8;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ============================================================ -->
+    <!-- 1. ШАПКА ДЭШБОРДА                                             -->
+    <!-- ============================================================ -->
+    <header class="dashboard-header">
+        <div>
+            <h1>📦 Тепловая карта отгрузок</h1>
+            <div class="sub">1С Sales · Анализ дистрибуции по складам и городам</div>
+        </div>
+        <div class="header-right">
+            <div><strong>Период:</strong> <span id="periodLabel">Июль 2026 г.</span></div>
+            <div style="margin-top:2px; font-size:13px; color:#6b7a90;">
+                <span id="recordCount">0</span> записей · <span id="cityCount">0</span> городов
+            </div>
+        </div>
+    </header>
+
+    <!-- ============================================================ -->
+    <!-- 2. KPI-КАРТОЧКИ                                               -->
+    <!-- ============================================================ -->
+    <section class="kpi-grid" id="kpiGrid">
+        <div class="kpi-card">
+            <div class="label">Общая выручка</div>
+            <div class="value" id="kpiRevenue">—</div>
+            <div class="sub">RUR</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Количество заказов</div>
+            <div class="value" id="kpiOrders">—</div>
+            <div class="sub">строк</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Средний чек</div>
+            <div class="value" id="kpiAvgOrder">—</div>
+            <div class="sub">RUR</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Склады (отгрузки)</div>
+            <div class="value" id="kpiWarehouses">—</div>
+            <div class="sub">точек</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Города (доставки)</div>
+            <div class="value" id="kpiCities">—</div>
+            <div class="sub">точек</div>
+        </div>
+        <div class="kpi-card">
+            <div class="label">Топ-маршрут</div>
+            <div class="value" id="kpiTopRoute" style="font-size:20px;">—</div>
+            <div class="sub" id="kpiTopRouteVal">—</div>
+        </div>
+    </section>
+
+    <!-- ============================================================ -->
+    <!-- 3. ОСНОВНАЯ КАРТА (тепловая + маршруты)                      -->
+    <!-- ============================================================ -->
+    <div class="dashboard-grid">
+
+        <div class="map-wrapper">
+            <div class="map-title">
+                <span>🗺️ Тепловая карта отгрузок по городам</span>
+                <span class="badge">интенсивность = выручка</span>
+            </div>
+            <div id="heatmap">
+                <div class="loader" id="mapLoader">
+                    <div class="spinner"></div>
+                    Загрузка данных…
+                </div>
+            </div>
+            <div style="padding:8px 20px 14px; display:flex; gap:20px; flex-wrap:wrap; font-size:12px; color:#6b7a90;">
+                <span>🟢 Зелёные маркеры — склады</span>
+                <span>🔵 Тёплые пятна — объём отгрузок в города</span>
+                <span>📌 Линии — топ-маршруты (толщина = выручка)</span>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 4. РЯД ГРАФИКОВ (2 колонки)                                  -->
+        <!-- ============================================================ -->
+        <div class="charts-row">
+
+            <!-- Топ складов -->
+            <div class="chart-card">
+                <h3>🏢 Топ складов по выручке</h3>
+                <div class="chart-container tall">
+                    <canvas id="chartWarehouses"></canvas>
+                </div>
+            </div>
+
+            <!-- Топ городов -->
+            <div class="chart-card">
+                <h3>🏙️ Топ городов по выручке</h3>
+                <div class="chart-container tall">
+                    <canvas id="chartCities"></canvas>
+                </div>
+            </div>
+
+            <!-- Топ маршрутов (склад → город) -->
+            <div class="chart-card">
+                <h3>🔄 Топ маршрутов (склад → город)</h3>
+                <div class="chart-container tall">
+                    <canvas id="chartRoutes"></canvas>
+                </div>
+            </div>
+
+            <!-- Бренды / способ получения (два маленьких графика) -->
+            <div class="chart-card">
+                <h3>🏷️ Выручка по брендам</h3>
+                <div class="chart-container pie">
+                    <canvas id="chartBrands"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 5. ДОПОЛНИТЕЛЬНЫЙ РЯД: способ получения + тренд               -->
+        <!-- ============================================================ -->
+        <div class="charts-row">
+
+            <div class="chart-card">
+                <h3>📦 Способ получения заказа</h3>
+                <div class="chart-container pie">
+                    <canvas id="chartOrderMethod"></canvas>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <h3>📈 Динамика по неделям (выручка)</h3>
+                <div class="chart-container tall">
+                    <canvas id="chartWeekly"></canvas>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 6. ТАБЛИЦА ТОП-МАРШРУТОВ                                     -->
+        <!-- ============================================================ -->
+        <div class="table-wrapper">
+            <h3>📋 Топ-10 маршрутов по выручке</h3>
+            <div style="overflow-x:auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Склад</th>
+                            <th>Город</th>
+                            <th style="text-align:right;">Выручка (RUR)</th>
+                            <th style="text-align:right;">Кол-во строк</th>
+                        </tr>
+                    </thead>
+                    <tbody id="routesTableBody">
+                        <tr><td colspan="5" style="color:#6b7a90; text-align:center;">Загрузка…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+    </div><!-- /dashboard-grid -->
+
+
+    <!-- ============================================================ -->
+    <!-- 7. СКРИПТ                                                      -->
+    <!-- ============================================================ -->
+    <script>
+        // ================================================================
+        // 1.  КООРДИНАТЫ ГОРОДОВ РОССИИ (lat / lng)
+        //     Используются для геопозиционирования на карте.
+        // ================================================================
+        const CITY_COORDS = {
+            'москва': [55.7558, 37.6173],
+            'санкт-петербург': [59.9343, 30.3351],
+            'екатеринбург': [56.8389, 60.6057],
+            'новосибирск': [55.0084, 82.9357],
+            'челябинск': [55.1644, 61.4368],
+            'тюмень': [57.1613, 65.5251],
+            'пермь': [58.0105, 56.2294],
+            'казань': [55.8304, 49.0661],
+            'самара': [53.2415, 50.2212],
+            'уфа': [54.7388, 55.9721],
+            'краснодар': [45.0355, 38.9753],
+            'омск': [54.9885, 73.3242],
+            'красноярск': [56.0106, 92.8526],
+            'воронеж': [51.6605, 39.2003],
+            'волгоград': [48.7071, 44.5169],
+            'ростов-на-дону': [47.2357, 39.7015],
+            'тамбов': [52.7213, 41.4523],
+            'оренбург': [51.7710, 55.1018],
+            'ижевск': [56.8526, 53.2113],
+            'ярославль': [57.6261, 39.8845],
+            'киров': [58.6035, 49.6678],
+            'ульяновск': [54.3160, 48.3968],
+            'саратов': [51.5336, 46.0342],
+            'тольятти': [53.5088, 49.4193],
+            'набережные челны': [55.7436, 52.3956],
+            'нижний новгород': [56.3269, 44.0061],
+            'иркутск': [52.2864, 104.2807],
+            'владивосток': [43.1152, 131.8855],
+            'хабаровск': [48.4802, 135.0719],
+            'барнаул': [53.3561, 83.7902],
+            'кемерово': [55.3549, 86.0878],
+            'томск': [56.4846, 84.9478],
+            'новокузнецк': [53.7596, 87.1216],
+            'курск': [51.7303, 36.1926],
+            'липецк': [52.6092, 39.5991],
+            'белгород': [50.5975, 36.5888],
+            'калуга': [54.5138, 36.2614],
+            'рязань': [54.6273, 39.7456],
+            'тверь': [56.8587, 35.9176],
+            'смоленск': [54.7826, 32.0453],
+            'псков': [57.8138, 28.3496],
+            'вологда': [59.2205, 39.8915],
+            'архангельск': [64.5393, 40.5186],
+            'мурманск': [68.9707, 33.0747],
+            'петрозаводск': [61.7842, 34.3469],
+            'сыктывкар': [61.6667, 50.8167],
+            'кострома': [57.7675, 40.9269],
+            'иваново': [57.0003, 40.9859],
+            'владимир': [56.1290, 40.4070],
+            'благовещенск': [50.2791, 127.5332],
+            'чита': [52.0333, 113.5000],
+            'улан-удэ': [51.8333, 107.6167],
+            'якутск': [62.0272, 129.7322],
+            'магадан': [59.5682, 150.8085],
+            'южно-сахалинск': [46.9591, 142.7380],
+            'петропавловск-камчатский': [53.0452, 158.6538],
+            'назрань': [43.2258, 44.7646],
+            'грозный': [43.3125, 45.6980],
+            'махачкала': [42.9849, 47.5046],
+            'ставрополь': [45.0448, 41.9691],
+            'черкесск': [44.2269, 42.0468],
+            'налик': [43.4850, 43.6070],
+            'таганрог': [47.2362, 38.8969],
+            'новороссийск': [44.7239, 37.7688],
+            'сочи': [43.5855, 39.7231],
+            'анапа': [44.8951, 37.3163],
+            'геленджик': [44.5633, 38.0764],
+            'эйск': [46.7115, 38.2766],
+            'армавир': [44.9882, 41.1234],
+            'пятигорск': [44.0398, 43.0709],
+            'кисловодск': [43.9053, 42.7168],
+            'астрахань': [46.3479, 48.0336],
+            'элиста': [46.3083, 44.2708],
+            'волжский': [48.7859, 44.7797],
+            'камышин': [50.0651, 45.3883],
+            'северодвинск': [64.5625, 39.8184],
+            'чебоксары': [56.1439, 47.2489],
+            'йошкар-ола': [56.6346, 47.8998],
+            'саранск': [54.1838, 45.1749],
+            'пенза': [53.1959, 45.0183],
+            'орёл': [52.9703, 36.0630],
+            'брянск': [53.2434, 34.3642],
+            'тула': [54.1931, 37.6173],
+            'рязань': [54.6273, 39.7456],
+            'калуга': [54.5138, 36.2614],
+            'подольск': [55.4243, 37.5435],
+            'люберцы': [55.6776, 37.8932],
+            'балашиха': [55.7964, 37.9372],
+            'коломна': [55.1087, 38.7640],
+            'сергиев посад': [56.3062, 38.1340],
+            'орехово-зуево': [55.8096, 38.9614],
+            'дубна': [56.7346, 37.1667],
+            'обнинск': [55.0944, 36.6121],
+            'протвино': [54.8707, 37.2183],
+            'троицк': [55.4846, 37.3074],
+            'видное': [55.5517, 37.7067],
+            'красногорск': [55.8318, 37.3293],
+            'химки': [55.8888, 37.4304],
+            'мытищи': [55.9105, 37.7363],
+            'королёв': [55.9162, 37.8545],
+            'жуковский': [55.5950, 38.1190],
+            'раменское': [55.5699, 38.2303],
+            'воскресенск': [55.3178, 38.6807],
+            'егорьевск': [55.3828, 39.0354],
+            'шатура': [55.5777, 39.5444],
+            'орел-изумруд': [52.9703, 36.0630], // fallback
+            'яшалта': [46.3386, 42.2761],
+            'учкекен': [43.9315, 42.5120],
+            'карачиха': [57.6261, 39.8845], // fallback
+            'голиково': [55.7558, 37.6173], // fallback
+            'им. 9 января': [51.7710, 55.1018], // fallback
+            'оренбург': [51.7710, 55.1018],
+            'кемерово': [55.3549, 86.0878],
+            'новокузнецк': [53.7596, 87.1216],
+            'прокопьевск': [53.8833, 86.7167],
+            'белово': [54.4167, 86.3000],
+            'междуреченск': [53.6866, 88.0704],
+            'ленск': [60.7253, 114.9278],
+            'мирный': [62.7642, 40.3358],
+            'северск': [56.6031, 84.8808],
+            'томск': [56.4846, 84.9478],
+            'барнаул': [53.3561, 83.7902],
+            'бийск': [52.5394, 85.2139],
+            'рубцовск': [51.5012, 81.2077],
+            'горно-алтайск': [51.9581, 85.9600],
+            'кызыл': [51.7114, 94.4533],
+            'абакан': [53.7200, 91.4433],
+            'черногорск': [53.8236, 91.3250],
+            'норильск': [69.3490, 88.2010],
+            'тайшет': [55.9406, 98.0030],
+            'братск': [56.1455, 101.6143],
+            'ангарск': [52.5449, 103.8885],
+            'усть-илимск': [57.9796, 102.7101],
+            'читин': [52.0333, 113.5000],
+            'краснокаменск': [50.0979, 118.0329],
+            'белогорск': [50.9164, 128.4693],
+            'свободный': [51.3910, 128.1340],
+            'тында': [55.1558, 124.7268],
+            'нерюнгри': [56.6582, 124.7254],
+            'алдан': [58.6095, 125.3815],
+            'минеральные воды': [44.2083, 43.1383],
+            'георгиевск': [44.1489, 43.4739],
+            'буденновск': [44.7814, 44.1650],
+            'зеленокумск': [44.4069, 43.8806],
+            'светлоград': [45.3286, 42.8564],
+            'изобильный': [45.3708, 41.7086],
+            'невинномысск': [44.6333, 41.9500],
+            'армавир': [44.9882, 41.1234],
+            'усть-лабинск': [45.2226, 39.6927],
+            'тимашевск': [45.6169, 38.9352],
+            'славянск-на-кубани': [45.2605, 38.1260],
+            'крымск': [44.9257, 37.9861],
+            'абинск': [44.8680, 38.1610],
+            'белореченск': [44.7667, 39.8667],
+            'лабинск': [44.6333, 40.7333],
+            'курганинск': [44.8833, 40.6000],
+            'армавир': [44.9882, 41.1234],
+            'новошахтинск': [47.7577, 39.9364],
+            'каменск-шахтинский': [48.3178, 40.2683],
+            'шахты': [47.7083, 40.2147],
+            'новочеркасск': [47.4119, 40.1049],
+            'волгодонск': [47.5167, 42.1500],
+            'сальск': [46.4750, 41.5417],
+            'батайск': [47.1386, 39.7508],
+            'азов': [47.1078, 39.4167],
+            'таганрог': [47.2362, 38.8969],
+            'ейск': [46.7115, 38.2766],
+            'приморско-ахтарск': [46.0515, 38.1794],
+            'темрюк': [45.2697, 37.3878],
+            'анапа': [44.8951, 37.3163],
+            'геленджик': [44.5633, 38.0764],
+            'туапсе': [44.1103, 39.0825],
+            'сочи': [43.5855, 39.7231],
+            'адлер': [43.4292, 39.9231],
+            'череповец': [59.1333, 37.9000],
+            'вологда': [59.2205, 39.8915],
+            'великий новгород': [58.5214, 31.2756],
+            'псков': [57.8138, 28.3496],
+            'тверь': [56.8587, 35.9176],
+            'смоленск': [54.7826, 32.0453],
+            'брянск': [53.2434, 34.3642],
+            'калуга': [54.5138, 36.2614],
+            'тула': [54.1931, 37.6173],
+            'рязань': [54.6273, 39.7456],
+            'липецк': [52.6092, 39.5991],
+            'воронеж': [51.6605, 39.2003],
+            'тамбов': [52.7213, 41.4523],
+            'пенза': [53.1959, 45.0183],
+            'саранск': [54.1838, 45.1749],
+            'ульяновск': [54.3160, 48.3968],
+            'чебоксары': [56.1439, 47.2489],
+            'йошкар-ола': [56.6346, 47.8998],
+            'киров': [58.6035, 49.6678],
+            'ижевск': [56.8526, 53.2113],
+            'пермь': [58.0105, 56.2294],
+            'екатеринбург': [56.8389, 60.6057],
+            'тюмень': [57.1613, 65.5251],
+            'челябинск': [55.1644, 61.4368],
+            'курган': [55.4408, 65.3412],
+            'магнитогорск': [53.4186, 59.0472],
+            'нижний тагил': [57.9190, 59.9650],
+            'каменск-уральский': [56.4149, 61.9189],
+            'первоуральск': [56.9083, 59.9497],
+            'серов': [59.6033, 60.5783],
+            'новоуральск': [57.2473, 60.0953],
+            'верхняя пышма': [56.9667, 60.5833],
+            'берёзовский': [56.9000, 60.8000],
+            'заречный': [56.8167, 61.3167],
+            'асбест': [57.0000, 61.4667],
+            'ирбит': [57.6833, 63.0500],
+            'нижняя тура': [58.6167, 59.8167],
+            'краснотурьинск': [59.7667, 60.2000],
+            'серов': [59.6033, 60.5783],
+            'североуральск': [60.1500, 59.9500],
+            'ишим': [56.1167, 69.5000],
+            'тобольск': [58.2000, 68.2500],
+            'сургут': [61.2500, 73.4167],
+            'нижневартовск': [60.9333, 76.5833],
+            'нефтеюганск': [61.0833, 72.6000],
+            'ханты-мансийск': [61.0000, 69.0000],
+            'урай': [60.1333, 64.8000],
+            'советский': [61.3667, 63.5667],
+            'югорск': [61.3167, 63.3333],
+            'надым': [65.5333, 72.5167],
+            'новый уренгой': [66.0833, 76.6333],
+            'ноябрьск': [63.2000, 75.4500],
+            'муравленко': [63.7833, 74.5167],
+            'губкинский': [64.4333, 76.5000],
+            'тарко-сале': [64.9167, 77.7667],
+            'салехард': [66.5333, 66.6000],
+            'лабытнанги': [66.6500, 66.3833],
+            'владивосток': [43.1152, 131.8855],
+            'артём': [43.3500, 132.1833],
+            'находка': [42.8167, 132.8833],
+            'уссурийск': [43.8000, 131.9500],
+            'спасск-дальний': [44.6000, 132.8167],
+            'партизанск': [43.1333, 133.1333],
+            'большой камень': [43.1167, 132.3500],
+            'фокино': [42.9667, 132.4000],
+            'лесозаводск': [45.4667, 133.4000],
+            'дальнегорск': [44.5667, 135.5667],
+            'кавалерово': [44.2667, 135.0500],
+            'терней': [45.0500, 136.6000],
+            'пластун': [44.7333, 136.2667],
+            'хабаровск': [48.4802, 135.0719],
+            'комсомольск-на-амуре': [50.5500, 137.0000],
+            'амурск': [50.2333, 136.9000],
+            'советская гавань': [48.9667, 140.2833],
+            'николаевск-на-амуре': [53.1333, 140.7333],
+            'окха': [53.5833, 142.9333],
+            'южно-сахалинск': [46.9591, 142.7380],
+            'корсаков': [46.6333, 142.7667],
+            'холмск': [47.0403, 142.0417],
+            'петропавловск-камчатский': [53.0452, 158.6538],
+            'елизово': [53.1833, 158.3833],
+            'магадан': [59.5682, 150.8085],
+            'симферополь': [44.9521, 34.1023],
+            'севастополь': [44.6167, 33.5254],
+            'ялта': [44.4981, 34.1657],
+            'евпатория': [45.1969, 33.3628],
+            'керчь': [45.3561, 36.4674],
+            'феодосия': [45.0319, 35.3824],
+            'донецк': [48.0159, 37.8028],
+            'луганск': [48.5740, 39.3078],
+            'горловка': [48.3000, 38.0500],
+            'макеевка': [48.0500, 37.9667],
+            'красный луч': [48.1333, 38.9333],
+            'антрацит': [48.1167, 39.0833],
+            'шахтёрск': [48.0333, 38.4667],
+            'снежное': [48.0167, 38.7667],
+            'трез': [48.0000, 38.8333],
+            'кировское': [47.9833, 38.3167],
+        };
+
+        // ================================================================
+        // 2.  КООРДИНАТЫ СКЛАДОВ (по названию склада)
+        // ================================================================
+        const WAREHOUSE_COORDS = {
+            'основной склад частная марка': [55.7558, 37.6173], // Москва
+            'основной склад владивосток': [43.1152, 131.8855],
+            'основной склад новосибирск': [55.0084, 82.9357],
+            'основной склад екатеринбург': [56.8389, 60.6057],
+            'основной склад пермь': [58.0105, 56.2294],
+            'основной склад питер': [59.9343, 30.3351],
+            'основной склад самара': [53.2415, 50.2212],
+            'основной склад казань': [55.8304, 49.0661],
+            'основной склад краснодар': [45.0355, 38.9753],
+            'основной склад воронеж': [51.6605, 39.2003],
+            'основной склад волгоград': [48.7071, 44.5169],
+            'основной склад ростов': [47.2357, 39.7015],
+            'основной склад нижний новгород': [56.3269, 44.0061],
+            'основной склад иркутск': [52.2864, 104.2807],
+            'склад диагностических наборов екатеринбург': [56.8389, 60.6057],
+            'склад диагностических наборов нижний новгород': [56.3269, 44.0061],
+            'склад диагностических наборов краснодар': [45.0355, 38.9753],
+            'склад диагностических наборов': [55.7558, 37.6173], // fallback
+        };
+
+        // ================================================================
+        // 3.  ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+        // ================================================================
+
+        /** Нормализация строки: убираем пробелы, приводим к нижнему регистру */
+        function normalize(str) {
+            return String(str).trim().toLowerCase().replace(/\s+/g, ' ');
+        }
+
+        /** Извлечение города из строки вида "Имя (Город г.)" */
+        function extractCity(counterparty) {
+            if (!counterparty) return null;
+            const match = counterparty.match(/\(([^)]+)\)/);
+            if (!match) return null;
+            let city = match[1]
+                .replace(/г\.?$/i, '')
+                .replace(/[.,]/g, '')
+                .trim();
+            // Убираем лишние пробелы
+            city = city.replace(/\s+/g, ' ');
+            return city;
+        }
+
+        /** Получение координат города с fallback */
+        function getCityCoords(cityName) {
+            if (!cityName) return null;
+            const key = normalize(cityName);
+            // Прямое совпадение
+            if (CITY_COORDS[key]) return CITY_COORDS[key];
+            // Поиск частичного совпадения
+            for (const [k, v] of Object.entries(CITY_COORDS)) {
+                if (key.includes(k) || k.includes(key)) return v;
+            }
+            return null;
+        }
+
+        /** Получение координат склада */
+        function getWarehouseCoords(warehouse) {
+            if (!warehouse) return null;
+            const key = normalize(warehouse);
+            for (const [k, v] of Object.entries(WAREHOUSE_COORDS)) {
+                if (key.includes(k) || k.includes(key)) return v;
+            }
+            // Fallback: Москва
+            return [55.7558, 37.6173];
+        }
+
+        /** Форматирование чисел */
+        function fmt(num, decimals = 0) {
+            if (num === undefined || num === null) return '—';
+            return Number(num).toLocaleString('ru-RU', {
+                minimumFractionDigits: decimals,
+                maximumFractionDigits: decimals,
+            });
+        }
+
+        /** Сокращённое форматирование валюты */
+        function fmtCurrency(val) {
+            if (val === undefined || val === null) return '—';
+            if (val >= 1e6) return (val / 1e6).toFixed(1) + ' млн';
+            if (val >= 1e3) return (val / 1e3).toFixed(0) + ' тыс';
+            return fmt(val, 0);
+        }
+
+        /** Обрезание длинных названий */
+        function truncate(str, n = 20) {
+            if (!str) return '';
+            return str.length > n ? str.slice(0, n) + '…' : str;
+        }
+
+        // ================================================================
+        // 4.  ОСНОВНАЯ ЛОГИКА ДЭШБОРДА
+        // ================================================================
+
+        // Глобальные данные
+        let allData = [];
+        let aggregated = {
+            byWarehouse: {}, // склад → сумма
+            byCity: {}, // город → сумма
+            byRoute: {}, // склад|город → { sum, count, warehouse, city }
+            byBrand: {}, // бренд → сумма
+            byMethod: {}, // способ → сумма
+            byWeek: {}, // неделя → сумма
+            totalRevenue: 0,
+            totalRows: 0,
+            warehouseSet: new Set(),
+            citySet: new Set(),
+        };
+
+        // Ссылки на DOM
+        const mapContainer = document.getElementById('heatmap');
+        const mapLoader = document.getElementById('mapLoader');
+
+        // ================================================================
+        // 5.  ПАРСИНГ CSV
+        // ================================================================
+        function parseCSV(csvText) {
+            // Удаляем BOM если есть
+            if (csvText.charCodeAt(0) === 0xFEFF) {
+                csvText = csvText.slice(1);
+            }
+
+            const lines = csvText.split(/\r?\n/);
+            // Находим строку с заголовками: она содержит "Склад;Контрагент;Brand type;..."
+            let headerLineIndex = -1;
+            for (let i = 0; i < lines.length && i < 20; i++) {
+                const line = lines[i];
+                if (line.includes('Склад;Контрагент;Brand type;Документ продажи;Способ получения заказа;Ответственный;По дням;По неделям;Сумма продажи в RUR;Количество (в ед. отчетов);Количество (в базовых единицах)') ||
+                    line.includes('Склад;Контрагент;Brand type;')) {
+                    headerLineIndex = i;
+                    break;
+                }
+            }
+
+            if (headerLineIndex === -1) {
+                throw new Error('Не найден заголовок с колонками');
+            }
+
+            const headers = lines[headerLineIndex].split(';').map(h => h.trim());
+            // Индексы колонок
+            const idx = {
+                warehouse: headers.indexOf('Склад'),
+                counterparty: headers.indexOf('Контрагент'),
+                brand: headers.indexOf('Brand type'),
+                doc: headers.indexOf('Документ продажи'),
+                method: headers.indexOf('Способ получения заказа'),
+                responsible: headers.indexOf('Ответственный'),
+                day: headers.indexOf('По дням'),
+                week: headers.indexOf('По неделям'),
+                revenue: headers.indexOf('Сумма продажи в RUR'),
+                qty: headers.indexOf('Количество (в ед. отчетов)'),
+                qtyBase: headers.indexOf('Количество (в базовых единицах)'),
+            };
+
+            // Проверка обязательных колонок
+            if (idx.warehouse === -1 || idx.counterparty === -1 || idx.revenue === -1) {
+                throw new Error('Обязательные колонки не найдены');
+            }
+
+            const data = [];
+            for (let i = headerLineIndex + 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                const cols = line.split(';').map(c => c.trim());
+                if (cols.length < Math.max(idx.warehouse, idx.counterparty, idx.revenue) + 1) continue;
+
+                const revenueStr = cols[idx.revenue] || '0';
+                const revenue = parseFloat(revenueStr.replace(/\s/g, '').replace(',', '.')) || 0;
+
+                // Пропускаем строки с нулевой выручкой или отсутствием города
+                const counterparty = cols[idx.counterparty] || '';
+                const city = extractCity(counterparty);
+                if (!city || revenue === 0) continue;
+
+                const warehouse = cols[idx.warehouse] || 'Неизвестный склад';
+                const brand = cols[idx.brand] || 'Не указан';
+                const method = cols[idx.method] || 'Не указан';
+                const week = cols[idx.week] || 'Неизвестная неделя';
+                const qty = parseFloat(cols[idx.qty]?.replace(/\s/g, '').replace(',', '.')) || 0;
+
+                data.push({
+                    warehouse,
+                    counterparty,
+                    city,
+                    brand,
+                    method,
+                    week,
+                    revenue,
+                    qty,
+                    raw: cols,
+                });
+            }
+
+            return data;
+        }
+
+        // ================================================================
+        // 6.  АГРЕГАЦИЯ ДАННЫХ
+        // ================================================================
+        function aggregateData(data) {
+            const agg = {
+                byWarehouse: {},
+                byCity: {},
+                byRoute: {},
+                byBrand: {},
+                byMethod: {},
+                byWeek: {},
+                totalRevenue: 0,
+                totalRows: data.length,
+                warehouseSet: new Set(),
+                citySet: new Set(),
+            };
+
+            for (const row of data) {
+                const { warehouse, city, brand, method, week, revenue, qty } = row;
+
+                // Склады
+                agg.warehouseSet.add(warehouse);
+                agg.byWarehouse[warehouse] = (agg.byWarehouse[warehouse] || 0) + revenue;
+
+                // Города
+                agg.citySet.add(city);
+                agg.byCity[city] = (agg.byCity[city] || 0) + revenue;
+
+                // Маршруты
+                const routeKey = `${warehouse}|||${city}`;
+                if (!agg.byRoute[routeKey]) {
+                    agg.byRoute[routeKey] = { warehouse, city, sum: 0, count: 0 };
+                }
+                agg.byRoute[routeKey].sum += revenue;
+                agg.byRoute[routeKey].count += 1;
+
+                // Бренды
+                agg.byBrand[brand] = (agg.byBrand[brand] || 0) + revenue;
+
+                // Способ получения
+                agg.byMethod[method] = (agg.byMethod[method] || 0) + revenue;
+
+                // Недели
+                agg.byWeek[week] = (agg.byWeek[week] || 0) + revenue;
+
+                agg.totalRevenue += revenue;
+            }
+
+            return agg;
+        }
+
+        // ================================================================
+        // 7.  ОБНОВЛЕНИЕ KPI
+        // ================================================================
+        function updateKPI(agg) {
+            document.getElementById('kpiRevenue').textContent = fmtCurrency(agg.totalRevenue);
+            document.getElementById('kpiOrders').textContent = fmt(agg.totalRows, 0);
+            const avg = agg.totalRows > 0 ? agg.totalRevenue / agg.totalRows : 0;
+            document.getElementById('kpiAvgOrder').textContent = fmtCurrency(avg);
+            document.getElementById('kpiWarehouses').textContent = agg.warehouseSet.size;
+            document.getElementById('kpiCities').textContent = agg.citySet.size;
+
+            // Топ-маршрут
+            const routes = Object.values(agg.byRoute).sort((a, b) => b.sum - a.sum);
+            if (routes.length > 0) {
+                const top = routes[0];
+                document.getElementById('kpiTopRoute').textContent =
+                    `${truncate(top.warehouse, 12)} → ${truncate(top.city, 12)}`;
+                document.getElementById('kpiTopRouteVal').textContent =
+                    `${fmtCurrency(top.sum)} · ${top.count} строк`;
+            } else {
+                document.getElementById('kpiTopRoute').textContent = '—';
+                document.getElementById('kpiTopRouteVal').textContent = '—';
+            }
+
+            document.getElementById('recordCount').textContent = fmt(agg.totalRows, 0);
+            document.getElementById('cityCount').textContent = agg.citySet.size;
+        }
+
+        // ================================================================
+        // 8.  ПОСТРОЕНИЕ КАРТЫ (Leaflet + heatmap)
+        // ================================================================
+        let mapInstance = null;
+        let heatLayer = null;
+        let routeLines = [];
+
+        function buildMap(agg) {
+            // Убираем лоадер
+            if (mapLoader) mapLoader.style.display = 'none';
+
+            // Если карта уже существует — пересоздаём
+            if (mapInstance) {
+                mapInstance.remove();
+                mapInstance = null;
+            }
+
+            // Инициализация карты
+            mapInstance = L.map('heatmap', {
+                center: [62.0, 90.0],
+                zoom: 3,
+                zoomControl: true,
+                fadeAnimation: true,
+                attributionControl: true,
+            });
+
+            // Слой с картой (OpenStreetMap)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 18,
+                minZoom: 2,
+            }).addTo(mapInstance);
+
+            // ---- 8a. Тепловая карта (по городам) ----
+            const heatPoints = [];
+            for (const [city, revenue] of Object.entries(agg.byCity)) {
+                const coords = getCityCoords(city);
+                if (coords) {
+                    // Интенсивность = log(выручка) для лучшей визуализации
+                    const intensity = Math.log10(revenue + 1) * 0.8;
+                    heatPoints.push([coords[0], coords[1], intensity]);
+                }
+            }
+
+            if (heatPoints.length > 0) {
+                heatLayer = L.heatLayer(heatPoints, {
+                    radius: 28,
+                    blur: 20,
+                    maxZoom: 10,
+                    minOpacity: 0.3,
+                    gradient: {
+                        0.0: '#0a2f5a',
+                        0.3: '#1a6fb0',
+                        0.5: '#4ab5e0',
+                        0.7: '#f5c842',
+                        0.9: '#f28b2b',
+                        1.0: '#e03a2b',
+                    },
+                }).addTo(mapInstance);
+            }
+
+            // ---- 8b. Маркеры складов ----
+            for (const warehouse of agg.warehouseSet) {
+                const coords = getWarehouseCoords(warehouse);
+                if (!coords) continue;
+                const revenue = agg.byWarehouse[warehouse] || 0;
+                const size = Math.min(16 + Math.log10(revenue + 1) * 4, 32);
+                const icon = L.divIcon({
+                    html: `<div style="
+                              background: #2ecc71;
+                              width: ${size}px;
+                              height: ${size}px;
+                              border-radius: 50%;
+                              border: 2px solid #1a1f2b;
+                              box-shadow: 0 0 12px rgba(46,204,113,0.5);
+                              display: flex;
+                              align-items: center;
+                              justify-content: center;
+                              font-size: 10px;
+                              color: #fff;
+                              font-weight: 700;
+                              text-shadow: 0 0 4px rgba(0,0,0,0.6);
+                          ">${Math.round(revenue / 1e3)}</div>`,
+                    iconSize: [size, size],
+                    className: 'warehouse-marker',
+                });
+                L.marker(coords, { icon })
+                    .addTo(mapInstance)
+                    .bindPopup(
+                        `<b>${warehouse}</b><br>Выручка: ${fmtCurrency(revenue)}<br>Отгрузок: ${agg.warehouseSet.size}`
+                        );
+            }
+
+            // ---- 8c. Топ-10 маршрутов (линии) ----
+            const routes = Object.values(agg.byRoute)
+                .sort((a, b) => b.sum - a.sum)
+                .slice(0, 12);
+
+            for (const route of routes) {
+                const fromCoords = getWarehouseCoords(route.warehouse);
+                const toCoords = getCityCoords(route.city);
+                if (!fromCoords || !toCoords) continue;
+
+                const weight = Math.max(2, Math.min(12, Math.log10(route.sum + 1) * 3));
+                const opacity = Math.min(0.8, 0.3 + Math.log10(route.sum + 1) * 0.08);
+
+                // Линия с прозрачностью и цветом
+                const line = L.polyline([fromCoords, toCoords], {
+                    color: '#f39c12',
+                    weight: weight,
+                    opacity: opacity,
+                    dashArray: null,
+                    smoothFactor: 1,
+                }).addTo(mapInstance);
+
+                // Стрелка (направление) — небольшая метка в середине
+                const midLat = (fromCoords[0] + toCoords[0]) / 2;
+                const midLng = (fromCoords[1] + toCoords[1]) / 2;
+                const arrowIcon = L.divIcon({
+                    html: `▶`,
+                    iconSize: [10, 10],
+                    className: 'arrow-marker',
+                    iconAnchor: [5, 5],
+                });
+                L.marker([midLat, midLng], { icon: arrowIcon, interactive: false })
+                    .addTo(mapInstance);
+
+                // Всплывашка при наведении на линию (через маркер в середине)
+                const popupContent =
+                    `<b>${route.warehouse}</b> → <b>${route.city}</b><br>Выручка: ${fmtCurrency(route.sum)}<br>Строк: ${route.count}`;
+                const popupMarker = L.marker([midLat, midLng], {
+                    interactive: true,
+                    opacity: 0,
+                }).addTo(mapInstance);
+                popupMarker.bindPopup(popupContent);
+
+                routeLines.push(line);
+            }
+
+            // ---- 8d. Добавляем масштаб ----
+            L.control.scale({ position: 'bottomright' }).addTo(mapInstance);
+
+            // Пересчёт размера карты через секунду
+            setTimeout(() => {
+                if (mapInstance) mapInstance.invalidateSize();
+            }, 300);
+        }
+
+        // ================================================================
+        // 9.  ПОСТРОЕНИЕ ГРАФИКОВ (Chart.js)
+        // ================================================================
+        const chartInstances = {};
+
+        function renderCharts(agg) {
+            const colors = [
+                '#f0c27f', '#fc5c7d', '#4ab5e0', '#2ecc71', '#f39c12',
+                '#9b59b6', '#1abc9c', '#e74c3c', '#3498db', '#2c3e50',
+                '#d35400', '#8e44ad', '#16a085', '#c0392b', '#2980b9',
+            ];
+
+            // ---- 9a. Топ складов ----
+            const warehouseSorted = Object.entries(agg.byWarehouse)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 12);
+            const whLabels = warehouseSorted.map(([k]) => truncate(k, 16));
+            const whData = warehouseSorted.map(([, v]) => v);
+
+            if (chartInstances.warehouses) chartInstances.warehouses.destroy();
+            chartInstances.warehouses = new Chart(
+                document.getElementById('chartWarehouses'), {
+                    type: 'bar',
+                    data: {
+                        labels: whLabels,
+                        datasets: [{
+                            label: 'Выручка (RUR)',
+                            data: whData,
+                            backgroundColor: 'rgba(240, 194, 127, 0.7)',
+                            borderColor: '#f0c27f',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) =>
+                                        `Выручка: ${fmtCurrency(ctx.raw)}`,
+                                },
+                            },
+                        },
+                        scales: {
+                            y: {
+                                ticks: {
+                                    callback: (val) => fmtCurrency(val),
+                                    color: '#8892a8',
+                                },
+                                grid: { color: '#1f2733' },
+                            },
+                            x: {
+                                ticks: { color: '#8892a8', maxRotation: 30 },
+                                grid: { display: false },
+                            },
+                        },
+                    },
+                }
+            );
+
+            // ---- 9b. Топ городов ----
+            const citySorted = Object.entries(agg.byCity)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 12);
+            const cityLabels = citySorted.map(([k]) => truncate(k, 16));
+            const cityData = citySorted.map(([, v]) => v);
+
+            if (chartInstances.cities) chartInstances.cities.destroy();
+            chartInstances.cities = new Chart(
+                document.getElementById('chartCities'), {
+                    type: 'bar',
+                    data: {
+                        labels: cityLabels,
+                        datasets: [{
+                            label: 'Выручка (RUR)',
+                            data: cityData,
+                            backgroundColor: 'rgba(74, 181, 224, 0.7)',
+                            borderColor: '#4ab5e0',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) =>
+                                        `Выручка: ${fmtCurrency(ctx.raw)}`,
+                                },
+                            },
+                        },
+                        scales: {
+                            y: {
+                                ticks: {
+                                    callback: (val) => fmtCurrency(val),
+                                    color: '#8892a8',
+                                },
+                                grid: { color: '#1f2733' },
+                            },
+                            x: {
+                                ticks: { color: '#8892a8', maxRotation: 30 },
+                                grid: { display: false },
+                            },
+                        },
+                    },
+                }
+            );
+
+            // ---- 9c. Топ маршрутов ----
+            const routeSorted = Object.values(agg.byRoute)
+                .sort((a, b) => b.sum - a.sum)
+                .slice(0, 12);
+            const routeLabels = routeSorted.map(
+                (r) => `${truncate(r.warehouse, 10)} → ${truncate(r.city, 10)}`
+            );
+            const routeData = routeSorted.map((r) => r.sum);
+
+            if (chartInstances.routes) chartInstances.routes.destroy();
+            chartInstances.routes = new Chart(
+                document.getElementById('chartRoutes'), {
+                    type: 'bar',
+                    data: {
+                        labels: routeLabels,
+                        datasets: [{
+                            label: 'Выручка (RUR)',
+                            data: routeData,
+                            backgroundColor: 'rgba(243, 156, 18, 0.7)',
+                            borderColor: '#f39c12',
+                            borderWidth: 1,
+                            borderRadius: 4,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) =>
+                                        `Выручка: ${fmtCurrency(ctx.raw)}`,
+                                },
+                            },
+                        },
+                        scales: {
+                            y: {
+                                ticks: {
+                                    callback: (val) => fmtCurrency(val),
+                                    color: '#8892a8',
+                                },
+                                grid: { color: '#1f2733' },
+                            },
+                            x: {
+                                ticks: { color: '#8892a8', maxRotation: 35 },
+                                grid: { display: false },
+                            },
+                        },
+                    },
+                }
+            );
+
+            // ---- 9d. Бренды (круговая) ----
+            const brandSorted = Object.entries(agg.byBrand)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8);
+            const brandLabels = brandSorted.map(([k]) => k || 'Не указан');
+            const brandData = brandSorted.map(([, v]) => v);
+
+            if (chartInstances.brands) chartInstances.brands.destroy();
+            chartInstances.brands = new Chart(
+                document.getElementById('chartBrands'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: brandLabels,
+                        datasets: [{
+                            data: brandData,
+                            backgroundColor: colors.slice(0, brandLabels.length),
+                            borderColor: '#141a24',
+                            borderWidth: 2,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    color: '#b0bed0',
+                                    boxWidth: 12,
+                                    padding: 8,
+                                    font: { size: 11 },
+                                },
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                        const pct = total > 0 ? (ctx.raw / total * 100).toFixed(1) : 0;
+                                        return `${ctx.label}: ${fmtCurrency(ctx.raw)} (${pct}%)`;
+                                    },
+                                },
+                            },
+                        },
+                        cutout: '55%',
+                    },
+                }
+            );
+
+            // ---- 9e. Способ получения (круговая) ----
+            const methodSorted = Object.entries(agg.byMethod)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8);
+            const methodLabels = methodSorted.map(([k]) => k || 'Не указан');
+            const methodData = methodSorted.map(([, v]) => v);
+
+            if (chartInstances.method) chartInstances.method.destroy();
+            chartInstances.method = new Chart(
+                document.getElementById('chartOrderMethod'), {
+                    type: 'doughnut',
+                    data: {
+                        labels: methodLabels,
+                        datasets: [{
+                            data: methodData,
+                            backgroundColor: colors.slice(2, 2 + methodLabels.length),
+                            borderColor: '#141a24',
+                            borderWidth: 2,
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                position: 'right',
+                                labels: {
+                                    color: '#b0bed0',
+                                    boxWidth: 12,
+                                    padding: 8,
+                                    font: { size: 11 },
+                                },
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => {
+                                        const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                                        const pct = total > 0 ? (ctx.raw / total * 100).toFixed(1) : 0;
+                                        return `${ctx.label}: ${fmtCurrency(ctx.raw)} (${pct}%)`;
+                                    },
+                                },
+                            },
+                        },
+                        cutout: '55%',
+                    },
+                }
+            );
+
+            // ---- 9f. Динамика по неделям ----
+            const weekSorted = Object.entries(agg.byWeek)
+                .sort((a, b) => a[0].localeCompare(b[0]))
+                .slice(0, 20);
+            const weekLabels = weekSorted.map(([k]) => {
+                // Укорачиваем "Неделя с 29.06.2026" → "29.06"
+                const match = k.match(/\d{2}\.\d{2}/);
+                return match ? match[0] : k.slice(0, 10);
+            });
+            const weekData = weekSorted.map(([, v]) => v);
+
+            if (chartInstances.weekly) chartInstances.weekly.destroy();
+            chartInstances.weekly = new Chart(
+                document.getElementById('chartWeekly'), {
+                    type: 'line',
+                    data: {
+                        labels: weekLabels,
+                        datasets: [{
+                            label: 'Выручка',
+                            data: weekData,
+                            borderColor: '#fc5c7d',
+                            backgroundColor: 'rgba(252, 92, 125, 0.15)',
+                            fill: true,
+                            tension: 0.3,
+                            pointRadius: 3,
+                            pointBackgroundColor: '#fc5c7d',
+                        }],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) =>
+                                        `Выручка: ${fmtCurrency(ctx.raw)}`,
+                                },
+                            },
+                        },
+                        scales: {
+                            y: {
+                                ticks: {
+                                    callback: (val) => fmtCurrency(val),
+                                    color: '#8892a8',
+                                },
+                                grid: { color: '#1f2733' },
+                            },
+                            x: {
+                                ticks: { color: '#8892a8', maxRotation: 30 },
+                                grid: { display: false },
+                            },
+                        },
+                    },
+                }
+            );
+        }
+
+        // ================================================================
+        // 10. ТАБЛИЦА ТОП-МАРШРУТОВ
+        // ================================================================
+        function renderRoutesTable(agg) {
+            const tbody = document.getElementById('routesTableBody');
+            const routes = Object.values(agg.byRoute)
+                .sort((a, b) => b.sum - a.sum)
+                .slice(0, 10);
+
+            if (routes.length === 0) {
+                tbody.innerHTML =
+                    '<tr><td colspan="5" style="color:#6b7a90;text-align:center;">Нет данных</td></tr>';
+                return;
+            }
+
+            let html = '';
+            routes.forEach((r, i) => {
+                html += `
+                        <tr>
+                            <td>${i + 1}</td>
+                            <td>${r.warehouse}</td>
+                            <td>${r.city}</td>
+                            <td class="num">${fmtCurrency(r.sum)}</td>
+                            <td class="num">${r.count}</td>
+                        </tr>
+                    `;
+            });
+            tbody.innerHTML = html;
+        }
+
+        // ================================================================
+        // 11. ЗАГРУЗКА CSV И ЗАПУСК ДЭШБОРДА
+        // ================================================================
+        async function loadAndRender() {
+            try {
+                // Загружаем файл 1сsales.csv из той же папки
+                const response = await fetch('1сsales.csv');
+                if (!response.ok) {
+                    throw new Error(`Не удалось загрузить файл: ${response.status}`);
+                }
+                const csvText = await response.text();
+
+                // Парсим
+                const data = parseCSV(csvText);
+                if (data.length === 0) {
+                    throw new Error('Нет данных для отображения');
+                }
+                allData = data;
+
+                // Агрегируем
+                aggregated = aggregateData(data);
+
+                // Обновляем KPI
+                updateKPI(aggregated);
+
+                // Строим карту
+                buildMap(aggregated);
+
+                // Строим графики
+                renderCharts(aggregated);
+
+                // Таблица
+                renderRoutesTable(aggregated);
+
+                console.log(`✅ Дэшборд загружен: ${data.length} строк, ${aggregated.citySet.size} городов, ${aggregated.warehouseSet.size} складов`);
+
+            } catch (err) {
+                console.error('Ошибка загрузки:', err);
+                document.getElementById('mapLoader').innerHTML = `
+                        <div style="color:#e74c3c; text-align:center; padding:20px;">
+                            <div style="font-size:24px; margin-bottom:10px;">⚠️</div>
+                            <div>Ошибка загрузки данных</div>
+                            <div style="font-size:13px; color:#6b7a90; margin-top:6px;">${err.message}</div>
+                            <div style="font-size:13px; color:#6b7a90; margin-top:12px;">
+                                Убедитесь, что файл <strong>1сsales.csv</strong> лежит в той же папке, что и index.html
+                            </div>
+                        </div>
+                    `;
+                // Показываем ошибку в KPI
+                document.querySelectorAll('.kpi-card .value').forEach(el => el.textContent = '—');
+            }
+        }
+
+        // ================================================================
+        // 12. ЗАПУСК ПРИ ЗАГРУЗКЕ СТРАНИЦЫ
+        // ================================================================
+        document.addEventListener('DOMContentLoaded', loadAndRender);
+
+        // Пересчёт размера карты при изменении окна (с debounce)
+        let resizeTimer;
+        window.addEventListener('resize', () => {
+            clearTimeout(resizeTimer);
+            resizeTimer = setTimeout(() => {
+                if (mapInstance) {
+                    mapInstance.invalidateSize();
+                }
+            }, 400);
+        });
+    </script>
+
+</body>
+</html>
