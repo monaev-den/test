@@ -731,12 +731,12 @@ window.DASHBOARD_DATA = {"meta":{"period":"Июль 2026","total_sum":167073148.
     scrollWheelZoom: true,
   });
 
-  // убрал флаг
- // L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png1', {
- //   attribution: '&copy; OpenStreetMap &copy; CARTO',
- //   subdomains: 'abcd',
- //   maxZoom: 19,
- // }).addTo(map);
+
+ L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap &copy; CARTO',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(map);
 
   // Слои, которые будем перерисовывать при смене режима
   let flowLayer = L.layerGroup().addTo(map);
