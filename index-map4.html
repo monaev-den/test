@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>  · Тепловая карта 10-07 01-02</title>
+<title>  · Тепловая карта 10-07 09-17</title>
 
 <!--
   =========================================================================
@@ -731,11 +731,12 @@ window.DASHBOARD_DATA = {"meta":{"period":"Июль 2026","total_sum":167073148.
     scrollWheelZoom: true,
   });
 
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png1', {
-    attribution: '&copy; OpenStreetMap &copy; CARTO',
-    subdomains: 'abcd',
-    maxZoom: 19,
-  }).addTo(map);
+  // убрал флаг
+ // L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png1', {
+ //   attribution: '&copy; OpenStreetMap &copy; CARTO',
+ //   subdomains: 'abcd',
+ //   maxZoom: 19,
+ // }).addTo(map);
 
   // Слои, которые будем перерисовывать при смене режима
   let flowLayer = L.layerGroup().addTo(map);
