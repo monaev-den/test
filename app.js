@@ -202,7 +202,7 @@ function buildFilterOptions() {
   // Заполняем <select multiple> складов
   const whSelect = document.getElementById('fWarehouse');
   whSelect.innerHTML = STATE.warehouses.(w =>
-    <option value="${esc(w)}">${esc(w)} (${whCounts[w]})</option>`).join('');
+   `<option value="${esc(w)}">${esc(w)} (${whCounts[w]})</option>`).join('');
 
   // Заполняем <select multiple> городов (сортировка по убыванию объёма)
   const citySelect = document.getElementById('fCity');
