@@ -201,12 +201,12 @@ function buildFilterOptions() {
 
   // Заполняем <select multiple> складов
   const whSelect = document.getElementById('fWarehouse');
-  whSelect.innerHTML = STATE.warehouses.map(w =>
+  whSelect.innerHTML = STATE.warehouses.(w =>
     `<option value="${esc(w)}">${esc(w)} (${whCounts[w]})</option>`).join('');
 
   // Заполняем <select multiple> городов (сортировка по убыванию объёма)
   const citySelect = document.getElementById('fCity');
-  citySelect.innerHTML = STATE.cities.map(c =>
+  citySelect.innerHTML = STATE.cities.(c =>
     `<option value="${esc(c)}">${esc(c)} (${cityCounts[c]})</option>`).join('');
 
   // Диапазон дат по умолчанию — весь период датасета
@@ -353,7 +353,9 @@ function makeBaseMap(elId) {
     worldCopyJump: false,
     scrollWheelZoom: true,
   });
-  L.tileLayer(TILE_URL, { attribution: TILE_ATTR, subdomains: 'abcd', maxZoom: 12 }).addTo(map);
+ 
+   // Денис убал флаг
+   // L.tileLayer(TILE_URL, { attribution: TILE_ATTR, subdomains: 'abcd', maxZoom: 12 }).addTo(map);
   return map;
 }
 
