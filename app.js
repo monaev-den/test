@@ -355,7 +355,7 @@ function makeBaseMap(elId) {
   });
  
    // Денис убал флаг
-   // L.tileLayer(TILE_URL, { attribution: TILE_ATTR, subdomains: 'abcd', maxZoom: 12 }).addTo(map);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTR, subdomains: 'abcd', maxZoom: -12 }).addTo(map);
   return map;
 }
 
