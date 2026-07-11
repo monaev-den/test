@@ -363,6 +363,21 @@ function initMapsOnce() {
   STATE.maps.revenue = makeBaseMap('mapRevenue');
   STATE.maps.otifFail = makeBaseMap('mapOtifFail');
 
+  // ВАЖНО: сразу после создания карты её DOM-контейнер может ещё не иметь
+  // финального размера (браузер не успел посчитать layout, особенно если
+  // .map-el был скрыт или менял размер). Leaflet в этот момент думает,
+  // что размер карты 0x0, и плагин leaflet.heat падает с ошибкой
+  // "getImageData: source width is 0" при попытке нарисовать canvas.
+  // Принудительно пересчитываем размер каждой карты несколько раз с
+  // небольшой задержкой — это стандартный обходной путь для Leaflet.
+  Object.values(STATE.maps).forEach(m => m.invalidateSize());
+  requestAnimationFrame(() => {
+    Object.values(STATE.maps).forEach(m => m.invalidateSize());
+  });
+  setTimeout(() => {
+    Object.values(STATE.maps).forEach(m => m.invalidateSize());
+  }, 200);
+
   // Держим карты в актуальном размере при ресайзе окна
   window.addEventListener('resize', () => {
     Object.values(STATE.maps).forEach(m => m.invalidateSize());
@@ -378,8 +393,27 @@ function replaceLayer(mapKey, layerKey, newLayer) {
   newLayer.addTo(STATE.maps[mapKey]);
 }
 
+// Проверяет, что контейнер карты уже имеет реальные (ненулевые) размеры.
+// leaflet.heat рисует свой слой на внутреннем <canvas> и при размере 0x0
+// браузер бросает "Failed to execute getImageData... source width is 0".
+// Если размера ещё нет — пересчитываем его и пробуем ещё раз на следующем
+// кадре, вместо того чтобы падать.
+function mapHasSize(mapKey) {
+  const map = STATE.maps[mapKey];
+  if (!map) return false;
+  const size = map.getSize(); // {x, y} текущий размер контейнера в пикселях
+  return size.x > 0 && size.y > 0;
+}
+
 /* --- 5.1 Тепловая карта плотности доставок (по числу заказов на город) --- */
 function renderHeatDensityMap() {
+  // Если контейнер карты ещё не получил реальный размер от браузера —
+  // откладываем отрисовку на следующий кадр вместо падения с ошибкой canvas
+  if (!mapHasSize('heat')) {
+    STATE.maps.heat.invalidateSize();
+    requestAnimationFrame(renderHeatDensityMap);
+    return;
+  }
   const cityAgg = {};
   STATE.filtered.forEach(r => {
     if (!cityAgg[r.city]) cityAgg[r.city] = { lat: r.cityLat, lon: r.cityLon, count: 0 };
@@ -481,6 +515,11 @@ function renderRoutesMap() {
 
 /* --- 5.3 Тепловая карта выручки --- */
 function renderRevenueHeatMap() {
+  if (!mapHasSize('revenue')) {
+    STATE.maps.revenue.invalidateSize();
+    requestAnimationFrame(renderRevenueHeatMap);
+    return;
+  }
   const cityAgg = {};
   STATE.filtered.forEach(r => {
     if (!cityAgg[r.city]) cityAgg[r.city] = { lat: r.cityLat, lon: r.cityLon, sum: 0, count: 0 };
@@ -511,6 +550,11 @@ function renderRevenueHeatMap() {
 
 /* --- 5.4 Тепловая карта срывов OTIF --- */
 function renderOtifFailHeatMap() {
+  if (!mapHasSize('otifFail')) {
+    STATE.maps.otifFail.invalidateSize();
+    requestAnimationFrame(renderOtifFailHeatMap);
+    return;
+  }
   const cityAgg = {};
   STATE.filtered.forEach(r => {
     if (!cityAgg[r.city]) cityAgg[r.city] = { lat: r.cityLat, lon: r.cityLon, fails: 0, total: 0 };
@@ -975,7 +1019,18 @@ async function init() {
     buildFilterOptions();
     STATE.filtered = STATE.rawRows.slice();
 
-    setLoaderText('Инициализация карт…');
+    // ВАЖНО: показываем контейнер #app ДО создания карт Leaflet.
+    // Если инициализировать L.map() внутри элемента со style="display:none",
+    // браузер отдаёт ему нулевые ширину/высоту, и плагин leaflet.heat
+    // падает с ошибкой "getImageData: source width is 0" при попытке
+    // нарисовать тепловой слой на canvas нулевого размера.
+    document.getElementById('app').style.display = 'block';
+    document.getElementById('loaderScreen').style.display = 'none';
+
+    // Даём браузеру один кадр, чтобы применить layout и посчитать реальные
+    // размеры .map-el контейнеров, прежде чем создавать в них карты
+    await new Promise(resolve => requestAnimationFrame(resolve));
+
     initMapsOnce();
     initToggles();
     initFilterEvents();
@@ -984,17 +1039,13 @@ async function init() {
     // Отмечаем чип "Всё" активным по умолчанию
     document.querySelector('.chip[data-range="all"]').classList.add('active');
 
-    setLoaderText('Отрисовка дашборда…');
     renderAll();
 
-    // Показываем приложение, скрываем загрузочный экран
-    document.getElementById('app').style.display = 'block';
     document.getElementById('pageFooter').style.display = 'block';
     document.getElementById('pageFooter').textContent =
       `Загружено строк: ${fmtNum(STATE.rawRows.length)} · ` +
       `Пропущено (нет координат/склада/города): ${fmtNum(rawData.length - STATE.rawRows.length)} · ` +
       `Период данных: ${toISODate(STATE.minDate)} — ${toISODate(STATE.maxDate)}`;
-    document.getElementById('loaderScreen').style.display = 'none';
 
     const statusEl = document.getElementById('dataStatus');
     statusEl.classList.remove('err');
