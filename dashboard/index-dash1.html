@@ -1,0 +1,1661 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Логистика · 360° Control Tower</title>
+
+<!--
+  =============================================================================
+  ДАШБОРД ЛОГИСТИКИ — 360° ОБЗОР ДЛЯ РУКОВОДСТВА
+  =============================================================================
+  Архитектура файла:
+   1. <head>       — подключение библиотек (SheetJS для чтения .xlsx, Chart.js
+                      для графиков), CSS-стили ("control tower" тема).
+   2. <body>
+      2.1  Верхняя панель (header) — название, статус загрузки файла, дата.
+      2.2  Панель фильтров — выбор периода (диапазон месяцев) + быстрые
+           пресеты (3м/6м/12м/24м/весь период). Фильтр управляет ВСЕМИ
+           графиками раздела "Data" одновременно.
+      2.3  Блок "Executive Summary" — светофорные KPI-карточки: текущее
+           значение, тренд к пред. периоду, статус (зелёный/жёлтый/красный).
+      2.4  Разделы по бизнес-процессам логистики:
+           - Приёмка (Inbound / Goods receipt)
+           - Запасы и доступность (Inventory & Availability, MOH, OOS)
+           - Отгрузка и точность доставки (Outbound, OTIF, D-DOT, Picking)
+           - Возвраты/дефициты (Backorders + BO Volumes)
+           - Финансы и стоимость логистики (Freight cost, cost per pack,
+             Distribution % in Revenue)
+           - Качество и претензии (Complaints, Pick&Pack accuracy)
+      2.5  Футер — источник данных, дата генерации.
+   3. <script>
+      3.1 Загрузка Dashboard.xlsx через fetch + SheetJS (XLSX.read).
+      3.2 Парсинг листов Data / Availability / BO Volumes (лист Report
+          сознательно НЕ используется, как и требовалось в ТЗ).
+      3.3 Построение сквозной шкалы дат/периодов для фильтра.
+      3.4 Рендер всех графиков (Chart.js) и KPI-карточек.
+      3.5 Обработчики фильтра дат (пересчитывают графики "на лету").
+  =============================================================================
+-->
+
+<!-- SheetJS — читает .xlsx на стороне клиента без сервера -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- Chart.js — движок графиков -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<style>
+/* ============================================================
+   ДИЗАЙН-ТОКЕНЫ
+   Идея: "диспетчерская логистики" (control tower) — тёмный
+   графитово-синий фон, как экраны мониторинга в реальных
+   логистических центрах, светофорная индикация KPI (зелёный /
+   янтарный / красный), акцент — сигнальный "конвейерный" оранжевый.
+   ============================================================ */
+:root{
+  --bg:            #0b1220;   /* фон страницы — глубокий графит-синий */
+  --bg-panel:      #121b2e;   /* фон карточек/панелей */
+  --bg-panel-2:    #16233b;   /* чуть светлее панель (для вложенных блоков) */
+  --border:        #223252;   /* тонкая граница панелей */
+  --border-soft:   #1a2740;
+  --text:          #e8edf7;   /* основной текст */
+  --text-dim:      #8ea0c2;   /* второстепенный текст */
+  --text-faint:    #5c6d8f;   /* самый тусклый текст (подписи) */
+
+  --accent:        #ff8a3d;   /* сигнальный оранжевый — акцент бренда дашборда */
+  --accent-soft:   #ff8a3d22;
+
+  --good:          #35d07f;   /* KPI в норме */
+  --good-soft:     #35d07f1f;
+  --warn:          #f5c451;   /* KPI пограничный */
+  --warn-soft:     #f5c4511f;
+  --bad:           #ff5d6c;   /* KPI критичный */
+  --bad-soft:      #ff5d6c1f;
+  --neutral:       #6c86b8;   /* нет цели/нет данных */
+
+  --font-display:  'Zilla Slab', Georgia, 'Times New Roman', serif;
+  --font-body:     'Inter', -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  --font-mono:     'JetBrains Mono', 'Courier New', monospace;
+
+  --radius: 10px;
+  --radius-lg: 14px;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Zilla+Slab:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+*{ box-sizing:border-box; margin:0; padding:0; }
+
+html,body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--font-body);
+  -webkit-font-smoothing:antialiased;
+  scroll-behavior:smooth;
+}
+
+body{
+  background-image:
+    radial-gradient(ellipse 1200px 600px at 15% -10%, #1c3055 0%, transparent 60%),
+    radial-gradient(ellipse 900px 500px at 100% 0%, #14243f 0%, transparent 55%);
+  padding-bottom:60px;
+}
+
+/* Полоса-конвейер: тонкая декоративная линия вверху страницы,
+   отсылка к ленточному конвейеру склада */
+.conveyor{
+  height:4px;
+  width:100%;
+  background:repeating-linear-gradient(
+    90deg,
+    var(--accent) 0px, var(--accent) 18px,
+    transparent 18px, transparent 36px
+  );
+  opacity:0.55;
+}
+
+/* ============================================================
+   ШАПКА
+   ============================================================ */
+header.top{
+  padding:28px clamp(16px,4vw,48px) 18px;
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-end;
+  gap:20px;
+  flex-wrap:wrap;
+  border-bottom:1px solid var(--border-soft);
+}
+.brand-eyebrow{
+  font-family:var(--font-mono);
+  font-size:11px;
+  letter-spacing:.16em;
+  text-transform:uppercase;
+  color:var(--accent);
+  margin-bottom:6px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.brand-eyebrow .dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--good);
+  box-shadow:0 0 0 3px var(--good-soft);
+}
+h1.title{
+  font-family:var(--font-display);
+  font-weight:700;
+  font-size:clamp(24px,3.2vw,36px);
+  letter-spacing:-0.01em;
+  line-height:1.05;
+}
+h1.title span{ color:var(--text-dim); font-weight:500; }
+
+.header-status{
+  text-align:right;
+  font-family:var(--font-mono);
+  font-size:12px;
+  color:var(--text-dim);
+  min-width:220px;
+}
+.header-status .file-state{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  justify-content:flex-end;
+  margin-bottom:4px;
+  font-weight:600;
+}
+.header-status .file-state .ind{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--neutral);
+}
+.header-status .file-state.ok .ind{ background:var(--good); box-shadow:0 0 0 3px var(--good-soft);}
+.header-status .file-state.err .ind{ background:var(--bad); box-shadow:0 0 0 3px var(--bad-soft);}
+.header-status .file-state.loading .ind{ background:var(--warn); animation:pulse 1s infinite; }
+@keyframes pulse{ 0%,100%{opacity:1;} 50%{opacity:.3;} }
+
+main{ padding:0 clamp(16px,4vw,48px); }
+
+/* ============================================================
+   ПАНЕЛЬ ФИЛЬТРОВ ПО ДАТАМ
+   ============================================================ */
+.filter-bar{
+  margin-top:22px;
+  background:var(--bg-panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:16px 20px;
+  display:flex;
+  align-items:center;
+  gap:22px;
+  flex-wrap:wrap;
+}
+.filter-bar .label{
+  font-family:var(--font-mono);
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.1em;
+  color:var(--text-faint);
+  white-space:nowrap;
+}
+.range-wrap{
+  flex:1;
+  min-width:280px;
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+.range-values{
+  font-family:var(--font-mono);
+  font-size:13px;
+  color:var(--accent);
+  font-weight:600;
+  white-space:nowrap;
+  min-width:190px;
+}
+.dual-slider{
+  position:relative;
+  flex:1;
+  height:32px;
+}
+.dual-slider input[type=range]{
+  position:absolute;
+  width:100%;
+  top:12px;
+  height:6px;
+  background:transparent;
+  pointer-events:none;
+  -webkit-appearance:none;
+  appearance:none;
+}
+.dual-slider input[type=range]::-webkit-slider-thumb{
+  pointer-events:all;
+  -webkit-appearance:none;
+  appearance:none;
+  width:16px;height:16px;
+  border-radius:50%;
+  background:var(--accent);
+  border:3px solid #0b1220;
+  cursor:pointer;
+  margin-top:0;
+  box-shadow:0 0 0 1px var(--accent);
+}
+.dual-slider input[type=range]::-moz-range-thumb{
+  pointer-events:all;
+  width:16px;height:16px;
+  border-radius:50%;
+  background:var(--accent);
+  border:3px solid #0b1220;
+  cursor:pointer;
+  box-shadow:0 0 0 1px var(--accent);
+}
+.dual-slider .track{
+  position:absolute;
+  top:13px; left:0; right:0;
+  height:4px;
+  background:var(--border);
+  border-radius:2px;
+}
+.dual-slider .track-fill{
+  position:absolute;
+  top:13px; height:4px;
+  background:var(--accent);
+  border-radius:2px;
+}
+.presets{ display:flex; gap:6px; flex-wrap:wrap; }
+.preset-btn{
+  font-family:var(--font-mono);
+  font-size:11px;
+  padding:6px 11px;
+  background:var(--bg-panel-2);
+  border:1px solid var(--border);
+  color:var(--text-dim);
+  border-radius:20px;
+  cursor:pointer;
+  transition:all .15s ease;
+}
+.preset-btn:hover{ border-color:var(--accent); color:var(--text); }
+.preset-btn.active{ background:var(--accent-soft); border-color:var(--accent); color:var(--accent); }
+
+/* ============================================================
+   ОБЩИЕ БЛОКИ РАЗДЕЛОВ
+   ============================================================ */
+.section{
+  margin-top:34px;
+}
+.section-head{
+  display:flex;
+  align-items:baseline;
+  gap:14px;
+  margin-bottom:14px;
+  padding-bottom:10px;
+  border-bottom:1px solid var(--border-soft);
+}
+.section-num{
+  font-family:var(--font-mono);
+  font-size:12px;
+  color:var(--accent);
+  font-weight:600;
+}
+.section-title{
+  font-family:var(--font-display);
+  font-size:21px;
+  font-weight:600;
+}
+.section-sub{
+  font-size:12.5px;
+  color:var(--text-faint);
+  margin-left:auto;
+  text-align:right;
+  max-width:420px;
+}
+
+/* Сетка KPI-карточек светофора */
+.kpi-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  gap:12px;
+  margin-bottom:18px;
+}
+.kpi-card{
+  background:var(--bg-panel);
+  border:1px solid var(--border);
+  border-left:3px solid var(--neutral);
+  border-radius:var(--radius);
+  padding:14px 16px;
+  position:relative;
+  overflow:hidden;
+}
+.kpi-card.good{ border-left-color:var(--good); }
+.kpi-card.warn{ border-left-color:var(--warn); }
+.kpi-card.bad{ border-left-color:var(--bad); }
+.kpi-card .k-name{
+  font-size:11.5px;
+  color:var(--text-dim);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  margin-bottom:8px;
+  min-height:28px;
+}
+.kpi-card .k-value{
+  font-family:var(--font-display);
+  font-size:26px;
+  font-weight:700;
+  line-height:1;
+}
+.kpi-card .k-value .unit{
+  font-size:13px;
+  font-weight:500;
+  color:var(--text-dim);
+  margin-left:3px;
+}
+.kpi-card .k-meta{
+  margin-top:8px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:11.5px;
+  font-family:var(--font-mono);
+}
+.kpi-card .k-trend{ font-weight:600; }
+.kpi-card .k-trend.up{ color:var(--good); }
+.kpi-card .k-trend.down{ color:var(--bad); }
+.kpi-card .k-trend.flat{ color:var(--text-faint); }
+.kpi-card .k-target{ color:var(--text-faint); }
+.kpi-card .badge-status{
+  position:absolute;
+  top:12px; right:12px;
+  font-family:var(--font-mono);
+  font-size:9.5px;
+  padding:2px 7px;
+  border-radius:20px;
+  text-transform:uppercase;
+  letter-spacing:.04em;
+}
+.badge-status.good{ background:var(--good-soft); color:var(--good); }
+.badge-status.warn{ background:var(--warn-soft); color:var(--warn); }
+.badge-status.bad{ background:var(--bad-soft); color:var(--bad); }
+
+/* Панели с графиками */
+.panel-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(420px,1fr));
+  gap:14px;
+}
+.panel-grid.wide > .chart-panel{ grid-column:1/-1; }
+.chart-panel{
+  background:var(--bg-panel);
+  border:1px solid var(--border);
+  border-radius:var(--radius-lg);
+  padding:16px 18px 12px;
+  display:flex;
+  flex-direction:column;
+}
+.chart-panel .p-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:baseline;
+  margin-bottom:10px;
+  gap:10px;
+  flex-wrap:wrap;
+}
+.chart-panel .p-title{
+  font-size:13.5px;
+  font-weight:600;
+  color:var(--text);
+}
+.chart-panel .p-note{
+  font-size:11px;
+  color:var(--text-faint);
+  font-family:var(--font-mono);
+}
+.chart-canvas-wrap{
+  position:relative;
+  height:260px;
+}
+.chart-canvas-wrap.tall{ height:340px; }
+
+/* Горизонтальный скролл для широких таблиц/графиков (например,
+   Availability c десятками недельных точек, или таблицы SKU) */
+.hscroll{
+  overflow-x:auto;
+  overflow-y:hidden;
+  padding-bottom:6px;
+}
+.hscroll::-webkit-scrollbar{ height:8px; }
+.hscroll::-webkit-scrollbar-track{ background:var(--bg-panel-2); border-radius:4px; }
+.hscroll::-webkit-scrollbar-thumb{ background:var(--border); border-radius:4px; }
+.hscroll::-webkit-scrollbar-thumb:hover{ background:var(--accent); }
+
+/* Мини-таблица (напр. BO Volumes) */
+table.data-table{
+  border-collapse:collapse;
+  width:100%;
+  font-size:12.5px;
+}
+table.data-table th{
+  position:sticky; top:0;
+  background:var(--bg-panel-2);
+  color:var(--text-dim);
+  font-weight:600;
+  text-align:right;
+  padding:8px 10px;
+  border-bottom:1px solid var(--border);
+  font-family:var(--font-mono);
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.03em;
+  white-space:nowrap;
+}
+table.data-table th:first-child, table.data-table td:first-child{ text-align:left; }
+table.data-table td{
+  padding:7px 10px;
+  text-align:right;
+  border-bottom:1px solid var(--border-soft);
+  white-space:nowrap;
+  font-family:var(--font-mono);
+}
+table.data-table tr:hover td{ background:var(--bg-panel-2); }
+table.data-table td.hi{ color:var(--bad); font-weight:600; }
+
+.legend-hint{
+  display:flex; gap:14px; flex-wrap:wrap;
+  font-size:11px; color:var(--text-faint);
+  margin-top:10px;
+}
+.legend-hint span{ display:inline-flex; align-items:center; gap:5px; }
+.legend-hint i{ width:9px;height:9px;border-radius:2px; display:inline-block; }
+
+/* Загрузочный / ошибочный экран */
+#loadScreen{
+  position:fixed; inset:0;
+  background:var(--bg);
+  display:flex; align-items:center; justify-content:center;
+  flex-direction:column; gap:14px;
+  z-index:999;
+  font-family:var(--font-mono);
+}
+#loadScreen .spinner{
+  width:36px;height:36px;border-radius:50%;
+  border:3px solid var(--border);
+  border-top-color:var(--accent);
+  animation:spin 0.9s linear infinite;
+}
+@keyframes spin{ to{ transform:rotate(360deg); } }
+#loadScreen p{ color:var(--text-dim); font-size:13px; }
+#loadScreen .err-box{
+  max-width:560px;
+  background:var(--bg-panel);
+  border:1px solid var(--bad);
+  border-radius:var(--radius);
+  padding:16px 18px;
+  color:var(--text);
+  font-size:12.5px;
+  line-height:1.6;
+  display:none;
+}
+
+footer{
+  margin-top:50px;
+  padding:22px clamp(16px,4vw,48px) 10px;
+  border-top:1px solid var(--border-soft);
+  color:var(--text-faint);
+  font-size:11.5px;
+  font-family:var(--font-mono);
+  display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;
+}
+
+@media (max-width:640px){
+  .section-sub{ display:none; }
+  .kpi-card .k-value{ font-size:22px; }
+}
+</style>
+</head>
+<body>
+
+<div class="conveyor"></div>
+
+<!-- Экран загрузки/ошибки, показывается пока Dashboard.xlsx не прочитан -->
+<div id="loadScreen">
+  <div class="spinner"></div>
+  <p id="loadText">Загружаю Dashboard.xlsx…</p>
+  <div class="err-box" id="errBox"></div>
+</div>
+
+<header class="top">
+  <div>
+    <div class="brand-eyebrow"><span class="dot"></span>LOGISTICS CONTROL TOWER</div>
+    <h1 class="title">Обзор логистики <span>· 360°</span></h1>
+  </div>
+  <div class="header-status">
+    <div class="file-state loading" id="fileState"><span class="ind"></span><span id="fileStateText">Чтение Dashboard.xlsx…</span></div>
+    <div id="periodCoverage">—</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ===================== ФИЛЬТР ПО ПЕРИОДУ ===================== -->
+  <div class="filter-bar" id="filterBar" style="display:none;">
+    <div class="label">Период (лист Data)</div>
+    <div class="range-wrap">
+      <div class="dual-slider" id="dualSlider">
+        <div class="track"></div>
+        <div class="track-fill" id="trackFill"></div>
+        <input type="range" id="rangeMin" min="0" max="24" value="12" step="1">
+        <input type="range" id="rangeMax" min="0" max="24" value="24" step="1">
+      </div>
+      <div class="range-values" id="rangeValues">—</div>
+    </div>
+    <div class="presets" id="presets">
+      <button class="preset-btn" data-n="3">3 мес</button>
+      <button class="preset-btn" data-n="6">6 мес</button>
+      <button class="preset-btn" data-n="12">12 мес</button>
+      <button class="preset-btn active" data-n="24">Весь период</button>
+    </div>
+  </div>
+
+  <!-- Контент подгружается скриптом ниже в CONTENT_ROOT -->
+  <div id="contentRoot"></div>
+
+</main>
+
+<footer>
+  <span>Источник: Dashboard.xlsx (листы Data · Availability · BO Volumes)</span>
+  <span id="genStamp">—</span>
+</footer>
+
+<script>
+/* =============================================================================
+   ГЛАВНЫЙ СКРИПТ ДАШБОРДА
+   =============================================================================
+   Порядок выполнения:
+   1) fetchWorkbook()      — загружает Dashboard.xlsx (лежит рядом с index.html)
+   2) parseDataSheet() / parseAvailabilitySheet() / parseBOVolumesSheet()
+      — парсят три используемых листа книги (лист "Report" не используется).
+   3) buildContentSkeleton() — строит HTML-скелет всех секций дашборда.
+   4) buildFilterBar()     — строит слайдер диапазона месяцев по данным Data.
+   5) renderAll()          — рендерит все графики/карточки для текущего периода.
+   6) события слайдера дат повторно вызывают renderAll() без перезагрузки xlsx.
+   ============================================================================= */
+
+// ---------- Глобальное состояние ----------
+let RAW = {               // сырые распарсенные данные из книги
+  months: [],              // подписи месяцев, напр. "Июл 2024" (25 точек)
+  data: {},                 // { kpiName: [значения по месяцам] }, лист Data
+  dataMeta: {},             // { kpiName: { group } }
+  availability: { dates: [], series: {} }, // лист Availability (по неделям)
+  bo: []                    // лист BO Volumes: [{month, packs, usd, rejPacks, rejUsd, rejShare}]
+};
+let FILTER = { from: 12, to: 24 }; // индексы месяцев (включительно), по умолчанию последние 12
+let CHARTS = {};            // ссылки на Chart.js инстансы для update/destroy при смене фильтра
+
+// ---------- Палитра графиков (согласована с CSS-токенами) ----------
+const COLORS = {
+  accent:'#ff8a3d', good:'#35d07f', warn:'#f5c451', bad:'#ff5d6c',
+  blue:'#5b8def', violet:'#a78bfa', teal:'#2dd4bf', neutral:'#6c86b8',
+  grid:'#1f2c47', text:'#8ea0c2'
+};
+Chart.defaults.color = COLORS.text;
+Chart.defaults.font.family = "'Inter', sans-serif";
+Chart.defaults.font.size = 11;
+Chart.defaults.borderColor = COLORS.grid;
+
+/* =============================================================================
+   1. ЗАГРУЗКА ФАЙЛА Dashboard.xlsx (клиентский fetch, без сервера-бэкенда)
+   ============================================================================= */
+async function fetchWorkbook(){
+  const stateEl = document.getElementById('fileState');
+  const stateText = document.getElementById('fileStateText');
+  try{
+    const resp = await fetch('Dashboard.xlsx');
+    if(!resp.ok) throw new Error('HTTP ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    const wb = XLSX.read(buf, { type:'array', cellDates:true });
+
+    // Строго используем только Data / Availability / BO Volumes.
+    // Лист "Report" намеренно игнорируется по требованию ТЗ.
+    parseDataSheet(wb.Sheets['Data']);
+    parseAvailabilitySheet(wb.Sheets['Availability']);
+    parseBOVolumesSheet(wb.Sheets['BO Volumes']);
+
+    stateEl.className = 'file-state ok';
+    stateText.textContent = 'Dashboard.xlsx загружен';
+    document.getElementById('periodCoverage').textContent =
+      RAW.months.length ? `Данные: ${RAW.months[0]} – ${RAW.months[RAW.months.length-1]}` : '';
+    document.getElementById('genStamp').textContent =
+      'Сформировано: ' + new Date().toLocaleString('ru-RU');
+
+    document.getElementById('loadScreen').style.display = 'none';
+    document.getElementById('filterBar').style.display = 'flex';
+
+    buildContentSkeleton();
+    buildFilterBar();
+    renderAll();
+
+  }catch(err){
+    stateEl.className = 'file-state err';
+    stateText.textContent = 'Ошибка загрузки файла';
+    document.getElementById('loadText').textContent = 'Не удалось загрузить Dashboard.xlsx';
+    const box = document.getElementById('errBox');
+    box.style.display = 'block';
+    box.innerHTML = `<b>Причина:</b> ${err.message}<br><br>
+      Убедитесь, что файл <code>Dashboard.xlsx</code> находится в той же папке,
+      что и <code>index.html</code>, и что страница открыта через веб-сервер
+      (а не как локальный файл file:// — браузеры блокируют fetch() для
+      локальных файлов из соображений безопасности). Проще всего запустить
+      <code>python3 -m http.server</code> в этой папке и открыть
+      <code>http://localhost:8000</code>.`;
+    console.error(err);
+  }
+}
+
+/* =============================================================================
+   2.1 ПАРСИНГ ЛИСТА "Data"
+   Структура: строка 2 (Excel) — заголовки месяцев начиная с колонки C,
+   25 точек по фискальному циклу июль→июнь дважды + финальный июль.
+   Строки 3+ (Excel): колонка A — ответственный/группа
+   ("Света","3PL KPI","Save","АняБ"), колонка B — название KPI,
+   колонки C.. — значения по месяцам.
+   ============================================================================= */
+function fiscalMonthLabels(n){
+  // Строим n подписей месяцев в фискальной последовательности книги:
+  // Июл(Y) → Июн(Y+1) → Июл(Y+1) → Июн(Y+2) → Июл(Y+2) ...
+  // baseYear подобран так, что финальный месяц совпадает с текущим периодом файла (июль 2026).
+  const order = ['Июл','Авг','Сен','Окт','Ноя','Дек','Янв','Фев','Мар','Апр','Май','Июн'];
+  const labels = [];
+  const baseYear = 2024;
+  for(let i=0;i<n;i++){
+    const block = Math.floor(i/12);
+    const pos = i%12;
+    const year = pos < 6 ? baseYear + block : baseYear + 1 + block;
+    labels.push(order[pos] + ' ' + year);
+  }
+  return labels;
+}
+
+function parseDataSheet(sheet){
+  if(!sheet){ console.warn('Лист Data не найден'); return; }
+  const json = XLSX.utils.sheet_to_json(sheet, { header:1, raw:true, defval:null });
+  const headerRow = json[1] || []; // строка 2 в Excel = индекс 1
+
+  // Определяем количество месячных колонок: идём от колонки C (idx 2),
+  // пока встречаются непустые подписи месяцев.
+  let monthCount = 0;
+  for(let c=2;c<headerRow.length;c++){
+    if(headerRow[c] !== null && headerRow[c] !== '') monthCount = c-1;
+    else if(monthCount>0) break;
+  }
+  if(monthCount<1) monthCount = 25;
+  RAW.months = fiscalMonthLabels(monthCount);
+
+  // Строки KPI начинаются со строки 3 в Excel = индекс 2
+  let currentGroup = '';
+  for(let r=2;r<json.length;r++){
+    const row = json[r];
+    if(!row) continue;
+    const groupCell = row[0];
+    const nameCell = row[1];
+    if(typeof groupCell === 'string' && groupCell.trim()) currentGroup = groupCell.trim();
+    if(!nameCell || typeof nameCell !== 'string') continue;
+    const name = nameCell.trim();
+    // Пропускаем служебную строку с явной пометкой об ошибке в исходных данных
+    if(/data error/i.test(name)) continue;
+    const values = [];
+    for(let c=2;c<2+monthCount;c++){
+      let v = row[c];
+      if(typeof v !== 'number' || !isFinite(v)) v = null;
+      values.push(v);
+    }
+    if(values.every(v=>v===null)) continue; // пустая строка — пропускаем
+
+    // Защита от известной проблемы в исходном файле: строки "Shipped packs per day"
+    // и "Shipped orders per day" в последних колонках содержат битые значения формул
+    // (результат деления на пустую ячейку "Working days" для незакрытых месяцев) —
+    // это видно по нехарактерным отрицательным/дробным < 1 значениям в ряду,
+    // который иначе состоит из чисел в тысячах. Отсекаем такие выбросы.
+    if(/shipped (packs|orders)\s*per day/i.test(name)){
+      for(let k=0;k<values.length;k++){
+        if(values[k]!==null && Math.abs(values[k]) < 5) values[k] = null;
+      }
+    }
+
+    RAW.data[name] = values;
+    RAW.dataMeta[name] = { group: currentGroup };
+  }
+}
+
+/* =============================================================================
+   2.2 ПАРСИНГ ЛИСТА "Availability"
+   Структура: строка 1 (idx 0) — "Product" + даты недель; строки 2..5 (idx 1..4)
+   — 4 продуктовые линейки (Sphere/Torics × PL,HB/Brand) с % доступности (0..1).
+   Данные идут еженедельно на протяжении нескольких лет — поэтому на дашборде
+   этот график получает собственный горизонтальный скролл.
+   ============================================================================= */
+function parseAvailabilitySheet(sheet){
+  if(!sheet){ console.warn('Лист Availability не найден'); return; }
+  const json = XLSX.utils.sheet_to_json(sheet, { header:1, raw:true, defval:null });
+  const headerRow = json[0] || [];
+  const dates = [];
+  for(let c=1;c<headerRow.length;c++){
+    const v = headerRow[c];
+    // Проверяем и через instanceof, и через утиный тест (getTime существует
+    // и является числом) — устойчиво к редким случаям, когда объект Date
+    // создан в другом реализационном контексте и instanceof не срабатывает.
+    const isDateLike = v instanceof Date || (v && typeof v.getTime === 'function' && !isNaN(v.getTime()));
+    if(isDateLike) dates.push(v);
+    else if(typeof v === 'number') dates.push(excelSerialToDate(v));
+    else break;
+  }
+  RAW.availability.dates = dates;
+  RAW.availability.series = {};
+  for(let r=1;r<json.length;r++){
+    const row = json[r];
+    if(!row) continue;
+    const name = row[0];
+    if(!name || typeof name !== 'string') continue;
+    const vals = [];
+    for(let c=1;c<=dates.length;c++){
+      let v = row[c];
+      if(typeof v !== 'number' || !isFinite(v)) v = null;
+      vals.push(v);
+    }
+    RAW.availability.series[name.trim()] = vals;
+  }
+}
+function excelSerialToDate(serial){
+  const utcDays = Math.floor(serial - 25569);
+  return new Date(utcDays*86400*1000);
+}
+
+/* =============================================================================
+   2.3 ПАРСИНГ ЛИСТА "BO Volumes" (объёмы дефицита / backorder)
+   Структура: заголовки в строке 4 (idx 3): Month, Total Packs, Total in USD,
+   Rejected Packs, Rejected Sum USD. Данные — со строки 5 (idx 4). В конце —
+   строка "Grand Total", которую исключаем из построчных рядов (используем
+   только для проверки, отдельно в разделе не показываем как точку тренда).
+   ============================================================================= */
+function parseBOVolumesSheet(sheet){
+  if(!sheet){ console.warn('Лист BO Volumes не найден'); return; }
+  const json = XLSX.utils.sheet_to_json(sheet, { header:1, raw:true, defval:null });
+  const rows = [];
+  for(let r=4;r<json.length;r++){
+    const row = json[r];
+    if(!row) continue;
+    const month = row[0];
+    if(!month || typeof month !== 'string') continue;
+    if(/grand total/i.test(month)) continue;
+    const packs = typeof row[1]==='number' ? row[1] : null;
+    const usd = typeof row[2]==='number' ? row[2] : null;
+    const rejPacks = typeof row[3]==='number' ? row[3] : null;
+    const rejUsd = typeof row[4]==='number' ? row[4] : null;
+    if(packs===null && usd===null) continue;
+    rows.push({
+      month: month.trim(), packs, usd, rejPacks, rejUsd,
+      rejShare: (packs && rejPacks!==null) ? rejPacks/packs : null
+    });
+  }
+  RAW.bo = rows;
+}
+
+/* =============================================================================
+   3. УТИЛИТЫ ФОРМАТИРОВАНИЯ И ОЦЕНКИ СТАТУСА KPI
+   ============================================================================= */
+
+// Достаёт срез значений KPI для текущего диапазона фильтра [from..to]
+function sliceKPI(name){
+  const arr = RAW.data[name];
+  if(!arr) return [];
+  return arr.slice(FILTER.from, FILTER.to+1);
+}
+function sliceMonths(){ return RAW.months.slice(FILTER.from, FILTER.to+1); }
+
+// Последнее непустое значение массива и его индекс
+function lastValid(arr){
+  for(let i=arr.length-1;i>=0;i--) if(arr[i]!==null && arr[i]!==undefined) return {v:arr[i], i};
+  return {v:null, i:-1};
+}
+// Предыдущее непустое значение до индекса i
+function prevValid(arr, i){
+  for(let k=i-1;k>=0;k--) if(arr[k]!==null && arr[k]!==undefined) return arr[k];
+  return null;
+}
+
+function fmtPct(v, digits=1){ return v===null||v===undefined ? '—' : (v*100).toFixed(digits)+'%'; }
+function fmtNum(v, digits=1){ return v===null||v===undefined ? '—' : Number(v).toLocaleString('ru-RU',{maximumFractionDigits:digits, minimumFractionDigits:0}); }
+function fmtUSD(v){ return v===null||v===undefined ? '—' : '$'+Math.round(v).toLocaleString('ru-RU'); }
+function fmtRub(v){ return v===null||v===undefined ? '—' : Math.round(v).toLocaleString('ru-RU')+' ₽'; }
+
+/**
+ * Строит KPI-карточку "светофора".
+ * @param opts.name        Название KPI (заголовок карточки)
+ * @param opts.value        Текущее (последнее) значение
+ * @param opts.prev          Предыдущее значение (для тренда)
+ * @param opts.fmt            Функция форматирования числа в строку
+ * @param opts.target        Целевое значение (если есть) — число или null
+ * @param opts.higherIsBetter  true если рост = хорошо (напр. OTIF), false если рост = плохо (напр. OOS)
+ * @param opts.unit           Подпись единицы измерения, напр. "дн." "%"
+ * @param opts.toleranceWarn  Допуск (доля от таргета), в пределах которого статус "warn", а не "bad"
+ */
+function kpiCard(opts){
+  const { name, value, prev, fmt, target=null, higherIsBetter=true, toleranceWarn=0.05 } = opts;
+  let status = 'neutral', statusLabel = 'нет цели';
+  if(value!==null && target!==null && target!==undefined){
+    const gapRatio = higherIsBetter ? (value-target)/Math.abs(target||1) : (target-value)/Math.abs(target||1);
+    if(gapRatio >= 0) { status='good'; statusLabel='в норме'; }
+    else if(gapRatio >= -toleranceWarn) { status='warn'; statusLabel='погранично'; }
+    else { status='bad'; statusLabel='отклонение'; }
+  }
+  let trendHtml = '<span class="k-trend flat">н/д</span>';
+  if(value!==null && prev!==null && prev!==undefined){
+    const diff = value-prev;
+    const pct = prev!==0 ? (diff/Math.abs(prev))*100 : 0;
+    const better = higherIsBetter ? diff>=0 : diff<=0;
+    const arrow = diff===0 ? '→' : (diff>0 ? '↑' : '↓');
+    const cls = diff===0?'flat':(better?'up':'down');
+    trendHtml = `<span class="k-trend ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+  }
+  const targetHtml = (target!==null && target!==undefined)
+    ? `<span class="k-target">цель ${fmt(target)}</span>` : '';
+  return `
+  <div class="kpi-card ${status!=='neutral'?status:''}">
+    <span class="badge-status ${status!=='neutral'?status:''}">${statusLabel}</span>
+    <div class="k-name">${name}</div>
+    <div class="k-value">${value!==null ? fmt(value) : '—'}</div>
+    <div class="k-meta">${trendHtml}${targetHtml}</div>
+  </div>`;
+}
+
+/* =============================================================================
+   4. ПОСТРОЕНИЕ HTML-СКЕЛЕТА СЕКЦИЙ
+   Каждая секция дашборда соответствует бизнес-процессу логистики.
+   Здесь только разметка-каркас (заголовки, контейнеры карточек/графиков);
+   сами данные и Chart.js-инстансы создаются в renderAll().
+   ============================================================================= */
+function buildContentSkeleton(){
+  const root = document.getElementById('contentRoot');
+  root.innerHTML = `
+
+    <!-- ============ 0. EXECUTIVE SUMMARY ============ -->
+    <section class="section" id="sec-summary">
+      <div class="section-head">
+        <span class="section-num">00</span>
+        <span class="section-title">Executive Summary</span>
+        <span class="section-sub">Ключевые показатели за последний доступный месяц выбранного периода, светофор относительно целевых значений</span>
+      </div>
+      <div class="kpi-grid" id="grid-summary"></div>
+    </section>
+
+    <!-- ============ 1. ПРИЁМКА (INBOUND) ============ -->
+    <section class="section" id="sec-inbound">
+      <div class="section-head">
+        <span class="section-num">01</span>
+        <span class="section-title">Приёмка (Inbound)</span>
+        <span class="section-sub">Фактический приём товара 3PL против плана и графика поставок</span>
+      </div>
+      <div class="kpi-grid" id="grid-inbound"></div>
+      <div class="panel-grid">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Goods Receipt: факт vs план (упаковки)</span><span class="p-note">3PL Inbound</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-inbound-fact-plan"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Соблюдение графика поставок</span><span class="p-note">3PL Goods receipt schedule</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-inbound-schedule"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 2. ЗАПАСЫ И ДОСТУПНОСТЬ (INVENTORY & AVAILABILITY) ============ -->
+    <section class="section" id="sec-inventory">
+      <div class="section-head">
+        <span class="section-num">02</span>
+        <span class="section-title">Запасы и доступность (Inventory &amp; Availability)</span>
+        <span class="section-sub">Месяцы покрытия запасом (MOH), дефицит на полке (OOS) и недельная доступность SKU по продуктовым линейкам</span>
+      </div>
+      <div class="kpi-grid" id="grid-inventory"></div>
+      <div class="panel-grid">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Months on Hand (MOH) по категориям</span><span class="p-note">Света · мес. запаса</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-moh"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Out of Stock (OOS), доля недоступных SKU</span><span class="p-note">факт vs цель</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-oos"></canvas></div>
+        </div>
+      </div>
+      <div class="panel-grid" style="margin-top:14px;">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Дефицит по типам линз (Diag / Comm)</span><span class="p-note">Sphere, Torics, MF</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-oos-breakdown"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Отгружено 3PL (Outbound), упаковки</span><span class="p-note">факт vs цель</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-3pl-outbound"></canvas></div>
+        </div>
+      </div>
+      <div class="panel-grid wide" style="margin-top:14px;">
+        <div class="chart-panel">
+          <div class="p-head">
+            <span class="p-title">Недельная доступность SKU по продуктовым линейкам</span>
+            <span class="p-note">лист Availability · прокрутите график по горизонтали</span>
+          </div>
+          <div class="hscroll">
+            <div class="chart-canvas-wrap" id="availWrap" style="min-width:1400px;"><canvas id="chart-availability"></canvas></div>
+          </div>
+          <div class="legend-hint">
+            <span><i style="background:${COLORS.blue}"></i>Sphere PL,HB</span>
+            <span><i style="background:${COLORS.violet}"></i>Torics PL,HB</span>
+            <span><i style="background:${COLORS.teal}"></i>Sphere Brand</span>
+            <span><i style="background:${COLORS.accent}"></i>Torics Brand</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 3. ОТГРУЗКА И ДОСТАВКА (OUTBOUND & DELIVERY) ============ -->
+    <section class="section" id="sec-outbound">
+      <div class="section-head">
+        <span class="section-num">03</span>
+        <span class="section-title">Отгрузка и доставка (Outbound &amp; Delivery)</span>
+        <span class="section-sub">Точность и своевременность отгрузок, производительность склада (picking), точность комплектации</span>
+      </div>
+      <div class="kpi-grid" id="grid-outbound"></div>
+      <div class="panel-grid">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">OTIF / D-DOT: доставка вовремя и в полном объёме</span><span class="p-note">доля заказов, цель ${'>'}=</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-otif"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Заказы отгружено в день, все DC</span><span class="p-note">шт./день</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-orders-per-day"></canvas></div>
+        </div>
+      </div>
+      <div class="panel-grid" style="margin-top:14px;">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Производительность отбора (Picking) vs заказ-линии</span><span class="p-note">строк/день, 3PL</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-picking"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Точность комплектации Pick &amp; Pack</span><span class="p-note">факт vs цель</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-pickpack"></canvas></div>
+        </div>
+      </div>
+      <div class="panel-grid" style="margin-top:14px;">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">OTIF по строкам заказа (lines)</span><span class="p-note">в дополнение к OTIF по заказам</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-otif-lines"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Отгружено упаковок в день</span><span class="p-note">Revenue − Trials, без Marketing</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-packs-per-day"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4. ДЕФИЦИТ / BACKORDERS ============ -->
+    <section class="section" id="sec-backorders">
+      <div class="section-head">
+        <span class="section-num">04</span>
+        <span class="section-title">Дефицит заказов (Backorders)</span>
+        <span class="section-sub">Доля заказов в бэкордере от продаж (лист Data) и объёмы отклонённых упаковок в деньгах (лист BO Volumes)</span>
+      </div>
+      <div class="kpi-grid" id="grid-backorders"></div>
+      <div class="panel-grid">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Backorders в продажах, %</span><span class="p-note">всего vs только линзы</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-bo-share"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Отклонённые упаковки (Rejected), $ и доля от общего объёма</span><span class="p-note">лист BO Volumes</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-bo-rejected"></canvas></div>
+        </div>
+      </div>
+      <div class="panel-grid wide" style="margin-top:14px;">
+        <div class="chart-panel">
+          <div class="p-head">
+            <span class="p-title">BO Volumes — помесячная таблица (упаковки и $)</span>
+            <span class="p-note">весь исторический ряд листа, независим от фильтра дат</span>
+          </div>
+          <div class="hscroll" style="max-height:320px; overflow-y:auto;">
+            <table class="data-table" id="table-bo"></table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 5. ФИНАНСЫ ЛОГИСТИКИ ============ -->
+    <section class="section" id="sec-finance">
+      <div class="section-head">
+        <span class="section-num">05</span>
+        <span class="section-title">Финансы логистики (Cost &amp; Efficiency)</span>
+        <span class="section-sub">Стоимость перевозки, себестоимость упаковки, доля дистрибуции в выручке, точность прогноза продаж</span>
+      </div>
+      <div class="kpi-grid" id="grid-finance"></div>
+      <div class="panel-grid">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Freight Cost: факт vs цель</span><span class="p-note">стоимость перевозки</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-freight"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Logistic cost per pack &amp; Average order value</span><span class="p-note">себестоимость и средний чек</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-cost-per-pack"></canvas></div>
+        </div>
+      </div>
+      <div class="panel-grid" style="margin-top:14px;">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Доля дистрибуции в выручке</span><span class="p-note">факт vs цель</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-distr-share"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Точность прогноза (Forecast Accuracy)</span><span class="p-note">дистрибуция vs продажи в штуках</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-forecast-acc"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 6. КАЧЕСТВО И ПРЕТЕНЗИИ ============ -->
+    <section class="section" id="sec-quality">
+      <div class="section-head">
+        <span class="section-num">06</span>
+        <span class="section-title">Качество и претензии (Complaints)</span>
+        <span class="section-sub">Количество претензий по зонам ответственности — склад 3PL vs зона RDC</span>
+      </div>
+      <div class="panel-grid">
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Претензии по зонам</span><span class="p-note">всего / 3PL / RDC</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-complaints"></canvas></div>
+        </div>
+        <div class="chart-panel">
+          <div class="p-head"><span class="p-title">Outbound Lens Scan (3PL)</span><span class="p-note">факт vs цель</span></div>
+          <div class="chart-canvas-wrap"><canvas id="chart-lens-scan"></canvas></div>
+        </div>
+      </div>
+    </section>
+  `;
+}
+
+/* =============================================================================
+   5. ПАНЕЛЬ ФИЛЬТРА ПО ДАТАМ (двойной слайдер по индексам месяцев листа Data)
+   ============================================================================= */
+function buildFilterBar(){
+  const n = RAW.months.length;
+  const rangeMin = document.getElementById('rangeMin');
+  const rangeMax = document.getElementById('rangeMax');
+  rangeMin.max = n-1; rangeMax.max = n-1;
+  FILTER.from = Math.max(0, n-12); // по умолчанию — последние 12 месяцев
+  FILTER.to = n-1;
+  rangeMin.value = FILTER.from;
+  rangeMax.value = FILTER.to;
+
+  updateSliderVisuals();
+
+  function onSliderChange(){
+    let a = parseInt(rangeMin.value), b = parseInt(rangeMax.value);
+    if(a > b-1){ a = b-1; rangeMin.value = a; } // не даём диапазону схлопнуться в 0 точек
+    FILTER.from = a; FILTER.to = b;
+    updateSliderVisuals();
+    document.querySelectorAll('.preset-btn').forEach(btn=>btn.classList.remove('active'));
+    renderAll();
+  }
+  rangeMin.addEventListener('input', onSliderChange);
+  rangeMax.addEventListener('input', onSliderChange);
+
+  function updateSliderVisuals(){
+    const a = parseInt(rangeMin.value), b = parseInt(rangeMax.value);
+    const pctA = (a/(n-1))*100, pctB = (b/(n-1))*100;
+    document.getElementById('trackFill').style.left = pctA+'%';
+    document.getElementById('trackFill').style.width = (pctB-pctA)+'%';
+    document.getElementById('rangeValues').textContent = `${RAW.months[a]} — ${RAW.months[b]}`;
+  }
+
+  // Пресеты быстрого выбора периода (3/6/12/24 месяца от конца ряда)
+  document.getElementById('presets').addEventListener('click', (e)=>{
+    const btn = e.target.closest('.preset-btn');
+    if(!btn) return;
+    document.querySelectorAll('.preset-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const nMonths = parseInt(btn.dataset.n);
+    FILTER.to = n-1;
+    FILTER.from = Math.max(0, n-nMonths);
+    rangeMin.value = FILTER.from; rangeMax.value = FILTER.to;
+    updateSliderVisuals();
+    renderAll();
+  });
+}
+
+/* =============================================================================
+   6. РЕНДЕР ВСЕХ ГРАФИКОВ И КАРТОЧЕК ДЛЯ ТЕКУЩЕГО ФИЛЬТРА
+   Уничтожаем предыдущие Chart.js-инстансы перед пересозданием, чтобы избежать
+   утечек памяти/наложения графиков при смене диапазона дат.
+   ============================================================================= */
+function destroyChart(id){
+  if(CHARTS[id]){ CHARTS[id].destroy(); delete CHARTS[id]; }
+}
+
+// Общие опции для линейных/столбчатых графиков временного ряда
+function baseLineOptions(extra={}){
+  return Object.assign({
+    responsive:true, maintainAspectRatio:false,
+    interaction:{ mode:'index', intersect:false },
+    plugins:{
+      legend:{ display:true, position:'top', align:'end',
+        labels:{ boxWidth:10, boxHeight:10, usePointStyle:true, padding:12 } },
+      tooltip:{ backgroundColor:'#0b1220', borderColor:'#223252', borderWidth:1, padding:10,
+        titleColor:'#e8edf7', bodyColor:'#c7d3ea' }
+    },
+    scales:{
+      x:{ grid:{ color:COLORS.grid, drawTicks:false }, ticks:{ maxRotation:0, autoSkip:true, autoSkipPadding:14 } },
+      y:{ grid:{ color:COLORS.grid }, ticks:{} }
+    }
+  }, extra);
+}
+
+function renderAll(){
+  renderSummary();
+  renderInbound();
+  renderInventory();
+  renderOutbound();
+  renderBackorders();
+  renderFinance();
+  renderQuality();
+}
+
+/* ---------- 0. EXECUTIVE SUMMARY ---------- */
+function renderSummary(){
+  const el = document.getElementById('grid-summary');
+  const months = sliceMonths();
+  const cards = [];
+
+  function pushCard(name, key, fmt, target, higherIsBetter, targetKey){
+    const arr = sliceKPI(key);
+    if(!arr.length) return;
+    const {v,i} = lastValid(arr);
+    const prev = i>=0 ? prevValid(arr,i) : null;
+    let tgt = target;
+    if(targetKey){
+      const tArr = sliceKPI(targetKey);
+      const t = lastValid(tArr);
+      if(t.v!==null) tgt = t.v;
+    }
+    cards.push(kpiCard({ name, value:v, prev, fmt, target:tgt, higherIsBetter }));
+  }
+
+  pushCard('MOH Total (запас, мес.)','MOH Total', v=>fmtNum(v,1)+' мес', null, true, 'MOH Target Sphere');
+  pushCard('OOS Total (дефицит на полке)','OOS Total', v=>fmtPct(v), null, false, 'OOS Target');
+  pushCard('WH OTIF Global (заказы)','WH OTIF Global (order)', v=>fmtPct(v), null, true, 'Delivery on Time Target');
+  pushCard('E2E OTIF Russia (заказы)','E2E OTIF Russia (order)', v=>fmtPct(v), null, true, 'Delivery on Time Target');
+  pushCard('Backorders в продажах','Backorders in Sales', v=>fmtPct(v), null, false, 'Backorders in Sales Target');
+  pushCard('Pick & Pack accuracy','Pick & Pack accuracy', v=>fmtPct(v,2), null, true, 'Pick & Pack accuracy Target');
+  pushCard('Freight Cost','Freight Cost', v=>fmtRub(v), null, false, 'Freight Cost Target');
+  pushCard('Logistic cost per pack','Logistic cost per pack', v=>fmtRub(v), null, false);
+
+  el.innerHTML = cards.join('') || '<div class="k-name">Нет данных для выбранного периода</div>';
+}
+
+/* ---------- 1. ПРИЁМКА (INBOUND) ---------- */
+function renderInbound(){
+  const months = sliceMonths();
+  const grid = document.getElementById('grid-inbound');
+
+  const receipt = sliceKPI('3PL Goods receipt actual packs (inbound)');
+  const receiptTarget = sliceKPI('3PL Goods receipt packs Target');
+  const schedule = sliceKPI('3PL Goods receipt schedule');
+
+  const lastR = lastValid(receipt), prevR = lastR.i>=0?prevValid(receipt,lastR.i):null;
+  const lastRT = lastValid(receiptTarget);
+  const lastS = lastValid(schedule), prevS = lastS.i>=0?prevValid(schedule,lastS.i):null;
+
+  grid.innerHTML = [
+    kpiCard({ name:'Приёмка, факт (упаковки)', value:lastR.v, prev:prevR, fmt:v=>fmtNum(v,0), target:lastRT.v, higherIsBetter:true, toleranceWarn:0.1 }),
+    kpiCard({ name:'Соблюдение графика поставок', value:lastS.v, prev:prevS, fmt:v=>fmtPct(v), target:0.95, higherIsBetter:true }),
+  ].join('');
+
+  destroyChart('inbound-fp');
+  CHARTS['inbound-fp'] = new Chart(document.getElementById('chart-inbound-fact-plan'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'Факт приёма', data:receipt, backgroundColor:COLORS.blue, borderRadius:4, maxBarThickness:26 },
+      { label:'План', data:receiptTarget, type:'line', borderColor:COLORS.accent, backgroundColor:COLORS.accent,
+        pointRadius:2, borderWidth:2, tension:0.25 }
+    ]},
+    options: baseLineOptions()
+  });
+
+  destroyChart('inbound-sched');
+  CHARTS['inbound-sched'] = new Chart(document.getElementById('chart-inbound-schedule'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Schedule adherence', data:schedule, borderColor:COLORS.teal, backgroundColor:COLORS.teal+'33',
+        fill:true, pointRadius:2, borderWidth:2, tension:0.3 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+}
+
+/* ---------- 2. ЗАПАСЫ И ДОСТУПНОСТЬ (INVENTORY & AVAILABILITY) ---------- */
+function renderInventory(){
+  const months = sliceMonths();
+  const grid = document.getElementById('grid-inventory');
+
+  const mohTotal = sliceKPI('MOH Total');
+  const mohSphere = sliceKPI('MOH Sphere');
+  const mohToric = sliceKPI('MOH Toric');
+  const mohTarget = sliceKPI('MOH Target Sphere');
+  const oosTotal = sliceKPI('OOS Total');
+  const oosTarget = sliceKPI('OOS Target');
+
+  const lM = lastValid(mohTotal), pM = lM.i>=0?prevValid(mohTotal,lM.i):null;
+  const lMT = lastValid(mohTarget);
+  const lO = lastValid(oosTotal), pO = lO.i>=0?prevValid(oosTotal,lO.i):null;
+  const lOT = lastValid(oosTarget);
+
+  grid.innerHTML = [
+    kpiCard({ name:'MOH Total', value:lM.v, prev:pM, fmt:v=>fmtNum(v,1)+' мес', target:lMT.v, higherIsBetter:true, toleranceWarn:0.1 }),
+    kpiCard({ name:'MOH Sphere', value:lastValid(mohSphere).v, prev:prevValid(mohSphere,lastValid(mohSphere).i), fmt:v=>fmtNum(v,1)+' мес' }),
+    kpiCard({ name:'MOH Toric', value:lastValid(mohToric).v, prev:prevValid(mohToric,lastValid(mohToric).i), fmt:v=>fmtNum(v,1)+' мес' }),
+    kpiCard({ name:'OOS Total (дефицит)', value:lO.v, prev:pO, fmt:v=>fmtPct(v), target:lOT.v, higherIsBetter:false }),
+  ].join('');
+
+  destroyChart('moh');
+  CHARTS['moh'] = new Chart(document.getElementById('chart-moh'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'MOH Total', data:mohTotal, borderColor:COLORS.accent, backgroundColor:COLORS.accent+'22', fill:true, pointRadius:2, borderWidth:2.5, tension:0.3 },
+      { label:'MOH Sphere', data:mohSphere, borderColor:COLORS.blue, pointRadius:1.5, borderWidth:1.5, tension:0.3 },
+      { label:'MOH Toric', data:mohToric, borderColor:COLORS.violet, pointRadius:1.5, borderWidth:1.5, tension:0.3 },
+      { label:'Цель (Sphere)', data:mohTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5, tension:0 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, title:{display:true,text:'месяцев запаса'} } } })
+  });
+
+  destroyChart('oos');
+  CHARTS['oos'] = new Chart(document.getElementById('chart-oos'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'OOS факт', data:oosTotal, backgroundColor: oosTotal.map((v,i)=>{
+          const t = oosTarget[i];
+          if(v===null) return COLORS.neutral;
+          if(t!==null && v>t) return COLORS.bad;
+          return COLORS.good;
+        }), borderRadius:4, maxBarThickness:22 },
+      { label:'Цель OOS', data:oosTarget, type:'line', borderColor:COLORS.warn, pointRadius:0, borderWidth:2, borderDash:[5,4] }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+
+  renderAvailabilityChart();
+  renderOosBreakdown(months);
+  render3plOutbound(months);
+}
+
+/* Разбивка дефицита (OOS) по типам линз: Diagnostic vs Commercial, для
+   Sphere / Torics / MF — помогает понять, в каком именно сегменте продукта
+   концентрируется проблема нехватки запасов. */
+function renderOosBreakdown(months){
+  const series = {
+    'Diag Sphere': sliceKPI('Diag Sphere'),
+    'Diag Torics': sliceKPI('Diag Torics'),
+    'Diag MF': sliceKPI('Diag MF'),
+    'Comm Sphere': sliceKPI('Comm Sphere'),
+    'Comm Torics': sliceKPI('Comm Torics'),
+    'Comm MF': sliceKPI('Comm MF'),
+  };
+  const palette = [COLORS.blue, COLORS.violet, COLORS.teal, COLORS.accent, COLORS.warn, COLORS.bad];
+  destroyChart('oos-breakdown');
+  CHARTS['oos-breakdown'] = new Chart(document.getElementById('chart-oos-breakdown'), {
+    type:'line',
+    data:{ labels:months, datasets: Object.keys(series).map((k,i)=>({
+      label:k, data:series[k], borderColor:palette[i], pointRadius:1.5, borderWidth:1.8, tension:0.3
+    })) },
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+}
+
+/* Фактически отгруженные 3PL объёмы (outbound) против цели — дополняет
+   картину приёмки зеркальным показателем на выходе склада. */
+function render3plOutbound(months){
+  const fact = sliceKPI('3PL Goods delivered (outbound)');
+  const target = sliceKPI('3PL Goods delivered (outbound) Target');
+  destroyChart('3pl-outbound');
+  CHARTS['3pl-outbound'] = new Chart(document.getElementById('chart-3pl-outbound'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'Факт отгрузки 3PL', data:fact, backgroundColor:COLORS.teal, borderRadius:4, maxBarThickness:24 },
+      { label:'Цель', data:target, type:'line', borderColor:COLORS.accent, pointRadius:2, borderWidth:2, tension:0.25 }
+    ]},
+    options: baseLineOptions()
+  });
+}
+
+/* Недельная доступность SKU по продуктовым линейкам — независимый от
+   месячного фильтра график (лист Availability ведёт свою временную шкалу
+   по неделям на протяжении нескольких лет), поэтому даём ему собственный
+   горизонтальный скролл, чтобы не терять детализацию. */
+function renderAvailabilityChart(){
+  const dates = RAW.availability.dates;
+  const labels = dates.map(d => d ? d.toLocaleDateString('ru-RU',{day:'2-digit',month:'short',year:'2-digit'}) : '');
+  const series = RAW.availability.series;
+  const keys = Object.keys(series);
+  const palette = [COLORS.blue, COLORS.violet, COLORS.teal, COLORS.accent, COLORS.good, COLORS.warn];
+
+  // Динамическая ширина канваса — чтобы недельные точки не слипались,
+  // задаём минимум ~9px на точку и оборачиваем в .hscroll (см. CSS/скелет).
+  const wrap = document.getElementById('availWrap');
+  const pxPerPoint = 9;
+  wrap.style.minWidth = Math.max(1400, labels.length*pxPerPoint) + 'px';
+
+  destroyChart('availability');
+  CHARTS['availability'] = new Chart(document.getElementById('chart-availability'), {
+    type:'line',
+    data:{ labels, datasets: keys.map((k,idx)=>({
+      label:k, data:series[k], borderColor:palette[idx%palette.length],
+      pointRadius:0, borderWidth:1.8, tension:0.15
+    })) },
+    options: baseLineOptions({
+      scales:{
+        x:{ grid:{ color:COLORS.grid }, ticks:{ maxRotation:0, autoSkip:true, autoSkipPadding:20 } },
+        y:{ grid:{ color:COLORS.grid }, min:0.7, max:1.0, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } }
+      }
+    })
+  });
+}
+
+/* ---------- 3. ОТГРУЗКА И ДОСТАВКА (OUTBOUND & DELIVERY) ---------- */
+function renderOutbound(){
+  const months = sliceMonths();
+  const grid = document.getElementById('grid-outbound');
+
+  const wOtif = sliceKPI('WH OTIF Global (order)');
+  const e2eOtif = sliceKPI('E2E OTIF Russia (order)');
+  const dDot = sliceKPI('D-DOT (Despatch and Delivery on Time)');
+  const otifTarget = sliceKPI('Delivery on Time Target');
+  const ordersPerDay = sliceKPI('Orders shipped all DC');
+  const pickPack = sliceKPI('Pick & Pack accuracy');
+  const pickPackTarget = sliceKPI('Pick & Pack accuracy Target');
+
+  const lW = lastValid(wOtif), pW = lW.i>=0?prevValid(wOtif,lW.i):null;
+  const lE = lastValid(e2eOtif), pE = lE.i>=0?prevValid(e2eOtif,lE.i):null;
+  const lD = lastValid(dDot), pD = lD.i>=0?prevValid(dDot,lD.i):null;
+  const lT = lastValid(otifTarget);
+  const lO = lastValid(ordersPerDay), pO = lO.i>=0?prevValid(ordersPerDay,lO.i):null;
+
+  grid.innerHTML = [
+    kpiCard({ name:'WH OTIF Global (заказы)', value:lW.v, prev:pW, fmt:v=>fmtPct(v), target:lT.v, higherIsBetter:true }),
+    kpiCard({ name:'E2E OTIF Russia (заказы)', value:lE.v, prev:pE, fmt:v=>fmtPct(v), target:lT.v, higherIsBetter:true }),
+    kpiCard({ name:'D-DOT', value:lD.v, prev:pD, fmt:v=>fmtPct(v), target:lT.v, higherIsBetter:true }),
+    kpiCard({ name:'Заказов в день, все DC', value:lO.v, prev:pO, fmt:v=>fmtNum(v,0) }),
+  ].join('');
+
+  destroyChart('otif');
+  CHARTS['otif'] = new Chart(document.getElementById('chart-otif'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'WH OTIF Global', data:wOtif, borderColor:COLORS.blue, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'E2E OTIF Russia', data:e2eOtif, borderColor:COLORS.violet, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'D-DOT', data:dDot, borderColor:COLORS.teal, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Цель', data:otifTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+
+  destroyChart('opd');
+  CHARTS['opd'] = new Chart(document.getElementById('chart-orders-per-day'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'Заказов в день', data:ordersPerDay, backgroundColor:COLORS.accent, borderRadius:4, maxBarThickness:24 }
+    ]},
+    options: baseLineOptions({ plugins:{ legend:{display:false} } })
+  });
+
+  const pickLine = sliceKPI('3PL Outbound Picking line (Per Day) with Marketing and Labels');
+  const orderLine = sliceKPI('3PL Outbound Order line (Per Day) with Marketing and Labels');
+  const pickTarget = sliceKPI('3PL Outbound Picking line Target');
+  destroyChart('picking');
+  CHARTS['picking'] = new Chart(document.getElementById('chart-picking'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Picking lines/день', data:pickLine, borderColor:COLORS.blue, pointRadius:2, borderWidth:2, tension:0.3, fill:false },
+      { label:'Order lines/день', data:orderLine, borderColor:COLORS.teal, pointRadius:2, borderWidth:2, tension:0.3, fill:false },
+      { label:'Цель picking', data:pickTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions()
+  });
+
+  const lPP = lastValid(pickPack), pPP = lPP.i>=0?prevValid(pickPack,lPP.i):null;
+  const lPPT = lastValid(pickPackTarget);
+  destroyChart('pickpack');
+  CHARTS['pickpack'] = new Chart(document.getElementById('chart-pickpack'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Pick & Pack accuracy', data:pickPack, borderColor:COLORS.good, backgroundColor:COLORS.good+'22', fill:true, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Цель', data:pickPackTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(1)+'%' } } } })
+  });
+  // добавляем карточку точности комплектации в общую сетку outbound (доп. карточка сверх 4 базовых)
+  grid.innerHTML += kpiCard({ name:'Pick & Pack accuracy', value:lPP.v, prev:pPP, fmt:v=>fmtPct(v,2), target:lPPT.v, higherIsBetter:true, toleranceWarn:0.02 });
+
+  // OTIF по строкам заказа (более детальный срез, чем OTIF по заказам целиком)
+  const wOtifLines = sliceKPI('WH OTIF Global (lines)');
+  const e2eOtifLines = sliceKPI('E2E OTIF Russia (lines)');
+  destroyChart('otif-lines');
+  CHARTS['otif-lines'] = new Chart(document.getElementById('chart-otif-lines'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'WH OTIF Global (lines)', data:wOtifLines, borderColor:COLORS.blue, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'E2E OTIF Russia (lines)', data:e2eOtifLines, borderColor:COLORS.violet, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Цель', data:otifTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+
+  // Отгружено упаковок в день — валовая производительность отгрузки склада
+  const packsPerDay = sliceKPI('Shipped packs  per day');
+  destroyChart('packsday');
+  CHARTS['packsday'] = new Chart(document.getElementById('chart-packs-per-day'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'Упаковок в день', data:packsPerDay, backgroundColor:COLORS.violet, borderRadius:4, maxBarThickness:24 }
+    ]},
+    options: baseLineOptions({ plugins:{ legend:{display:false} } })
+  });
+}
+
+/* ---------- 4. ДЕФИЦИТ ЗАКАЗОВ (BACKORDERS) ---------- */
+function renderBackorders(){
+  const months = sliceMonths();
+  const grid = document.getElementById('grid-backorders');
+
+  const boSales = sliceKPI('Backorders in Sales');
+  const boLenses = sliceKPI('Backorders Lenses only');
+  const boTarget = sliceKPI('Backorders in Sales Target');
+
+  const lB = lastValid(boSales), pB = lB.i>=0?prevValid(boSales,lB.i):null;
+  const lBT = lastValid(boTarget);
+  const lBL = lastValid(boLenses), pBL = lBL.i>=0?prevValid(boLenses,lBL.i):null;
+
+  // Последняя запись BO Volumes (весь ряд, без привязки к месячному фильтру Data)
+  const lastBO = RAW.bo[RAW.bo.length-1];
+  const prevBO = RAW.bo[RAW.bo.length-2];
+
+  grid.innerHTML = [
+    kpiCard({ name:'Backorders в продажах, всего', value:lB.v, prev:pB, fmt:v=>fmtPct(v), target:lBT.v, higherIsBetter:false }),
+    kpiCard({ name:'Backorders, только линзы', value:lBL.v, prev:pBL, fmt:v=>fmtPct(v) }),
+    kpiCard({ name:'Rejected packs (посл. месяц BO Volumes)', value: lastBO? lastBO.rejPacks : null,
+      prev: prevBO? prevBO.rejPacks : null, fmt:v=>fmtNum(v,0), higherIsBetter:false }),
+    kpiCard({ name:'Rejected, $ (посл. месяц BO Volumes)', value: lastBO? lastBO.usd? lastBO.rejUsd : null : null,
+      prev: prevBO? prevBO.rejUsd : null, fmt:v=>fmtUSD(v), higherIsBetter:false }),
+  ].join('');
+
+  destroyChart('bo-share');
+  CHARTS['bo-share'] = new Chart(document.getElementById('chart-bo-share'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Backorders всего', data:boSales, borderColor:COLORS.bad, backgroundColor:COLORS.bad+'22', fill:true, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Backorders линзы', data:boLenses, borderColor:COLORS.warn, pointRadius:2, borderWidth:1.8, tension:0.3 },
+      { label:'Цель', data:boTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+
+  // BO Volumes — независимый исторический ряд (месяцы без чёткой привязки к году
+  // на части точек), показываем последние ~24 точки для читаемости графика.
+  const boSlice = RAW.bo.slice(-24);
+  destroyChart('bo-rejected');
+  CHARTS['bo-rejected'] = new Chart(document.getElementById('chart-bo-rejected'), {
+    data:{ labels: boSlice.map(r=>r.month), datasets:[
+      { type:'bar', label:'Rejected, $', data:boSlice.map(r=>r.rejUsd), backgroundColor:COLORS.bad+'aa', borderRadius:3, maxBarThickness:18, yAxisID:'y' },
+      { type:'line', label:'Доля отклонённых, %', data:boSlice.map(r=>r.rejShare), borderColor:COLORS.accent, pointRadius:2, borderWidth:2, tension:0.25, yAxisID:'y1' }
+    ]},
+    options: baseLineOptions({
+      scales:{
+        x:{ grid:{color:COLORS.grid} },
+        y:{ position:'left', grid:{color:COLORS.grid}, title:{display:true,text:'USD'} },
+        y1:{ position:'right', grid:{drawOnChartArea:false}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' }, title:{display:true,text:'доля, %'} }
+      }
+    })
+  });
+
+  renderBOTable();
+}
+
+/* Таблица BO Volumes — весь исторический ряд, с горизонтальным + вертикальным
+   скроллом (данных много: 55+ месяцев), поэтому таблица предпочтительнее графика
+   для детального просмотра, а тренд уже показан на графике выше. */
+function renderBOTable(){
+  const tbl = document.getElementById('table-bo');
+  let html = `<thead><tr>
+    <th>Месяц</th><th>Total Packs</th><th>Total, $</th>
+    <th>Rejected Packs</th><th>Rejected, $</th><th>Доля отклон., %</th>
+  </tr></thead><tbody>`;
+  // выводим в обратном порядке (последний месяц сверху) для удобства руководства
+  [...RAW.bo].reverse().forEach(r=>{
+    const hi = r.rejShare!==null && r.rejShare > 0.25; // подсветка аномально высокой доли брака
+    html += `<tr>
+      <td>${r.month}</td>
+      <td>${fmtNum(r.packs,0)}</td>
+      <td>${fmtUSD(r.usd)}</td>
+      <td>${fmtNum(r.rejPacks,0)}</td>
+      <td>${fmtUSD(r.rejUsd)}</td>
+      <td class="${hi?'hi':''}">${r.rejShare!==null?fmtPct(r.rejShare):'—'}</td>
+    </tr>`;
+  });
+  html += '</tbody>';
+  tbl.innerHTML = html;
+}
+
+/* ---------- 5. ФИНАНСЫ ЛОГИСТИКИ ---------- */
+function renderFinance(){
+  const months = sliceMonths();
+  const grid = document.getElementById('grid-finance');
+
+  const freight = sliceKPI('Freight Cost');
+  const freightTarget = sliceKPI('Freight Cost Target');
+  const costPerPack = sliceKPI('Logistic cost per pack');
+  const aov = sliceKPI('Average order value');
+  const distrShare = sliceKPI('Distribution % in Revenue');
+  const distrTarget = sliceKPI('Distr % in Rev Target');
+  const distrAcc = sliceKPI('Distribution Forecast Accuracy');
+  const salesAcc = sliceKPI('Sales Units Forecast Accuracy');
+
+  const lF = lastValid(freight), pF = lF.i>=0?prevValid(freight,lF.i):null;
+  const lFT = lastValid(freightTarget);
+  const lC = lastValid(costPerPack), pC = lC.i>=0?prevValid(costPerPack,lC.i):null;
+  const lA = lastValid(aov), pA = lA.i>=0?prevValid(aov,lA.i):null;
+  const lD = lastValid(distrShare), pD = lD.i>=0?prevValid(distrShare,lD.i):null;
+  const lDT = lastValid(distrTarget);
+
+  grid.innerHTML = [
+    kpiCard({ name:'Freight Cost', value:lF.v, prev:pF, fmt:v=>fmtRub(v), target:lFT.v, higherIsBetter:false, toleranceWarn:0.08 }),
+    kpiCard({ name:'Logistic cost per pack', value:lC.v, prev:pC, fmt:v=>fmtRub(v), higherIsBetter:false }),
+    kpiCard({ name:'Average order value', value:lA.v, prev:pA, fmt:v=>fmtRub(v), higherIsBetter:true }),
+    kpiCard({ name:'Доля дистрибуции в выручке', value:lD.v, prev:pD, fmt:v=>fmtPct(v), target:lDT.v, higherIsBetter:false, toleranceWarn:0.1 }),
+  ].join('');
+
+  destroyChart('freight');
+  CHARTS['freight'] = new Chart(document.getElementById('chart-freight'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'Freight Cost, факт', data:freight, backgroundColor:COLORS.blue, borderRadius:4, maxBarThickness:24 },
+      { label:'Цель', data:freightTarget, type:'line', borderColor:COLORS.accent, pointRadius:2, borderWidth:2, tension:0.25 }
+    ]},
+    options: baseLineOptions()
+  });
+
+  destroyChart('costpp');
+  CHARTS['costpp'] = new Chart(document.getElementById('chart-cost-per-pack'), {
+    data:{ labels:months, datasets:[
+      { type:'line', label:'Cost per pack', data:costPerPack, borderColor:COLORS.warn, pointRadius:2, borderWidth:2, tension:0.3, yAxisID:'y' },
+      { type:'line', label:'Average order value', data:aov, borderColor:COLORS.teal, pointRadius:2, borderWidth:2, tension:0.3, yAxisID:'y1' }
+    ]},
+    options: baseLineOptions({
+      scales:{
+        x:{ grid:{color:COLORS.grid} },
+        y:{ position:'left', grid:{color:COLORS.grid}, title:{display:true,text:'₽/уп.'} },
+        y1:{ position:'right', grid:{drawOnChartArea:false}, title:{display:true,text:'₽/заказ'} }
+      }
+    })
+  });
+
+  destroyChart('distr');
+  CHARTS['distr'] = new Chart(document.getElementById('chart-distr-share'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Доля дистрибуции', data:distrShare, borderColor:COLORS.violet, backgroundColor:COLORS.violet+'22', fill:true, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Цель', data:distrTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+
+  destroyChart('forecast');
+  CHARTS['forecast'] = new Chart(document.getElementById('chart-forecast-acc'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Distribution Forecast Accuracy', data:distrAcc, borderColor:COLORS.blue, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Sales Units Forecast Accuracy', data:salesAcc, borderColor:COLORS.good, pointRadius:2, borderWidth:2, tension:0.3 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+}
+
+/* ---------- 6. КАЧЕСТВО И ПРЕТЕНЗИИ (COMPLAINTS) ---------- */
+function renderQuality(){
+  const months = sliceMonths();
+
+  const all = sliceKPI('All complaints');
+  const only3pl = sliceKPI('3PL area only');
+  const onlyRdc = sliceKPI('RDC area only');
+  const target3pl = sliceKPI('3PL area only_complaints Target');
+
+  destroyChart('complaints');
+  CHARTS['complaints'] = new Chart(document.getElementById('chart-complaints'), {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      { label:'Всего претензий', data:all, backgroundColor:COLORS.neutral+'99', borderRadius:3, maxBarThickness:18 },
+      { label:'Зона 3PL', data:only3pl, backgroundColor:COLORS.bad, borderRadius:3, maxBarThickness:18 },
+      { label:'Зона RDC', data:onlyRdc, backgroundColor:COLORS.warn, borderRadius:3, maxBarThickness:18 },
+      { label:'Цель (3PL)', data:target3pl, type:'line', borderColor:COLORS.good, pointRadius:0, borderWidth:2, borderDash:[5,4] }
+    ]},
+    options: baseLineOptions()
+  });
+
+  const lensScan = sliceKPI('3PL Outbound Lens Scan');
+  const lensScanTarget = sliceKPI('3PL Outbound Lens Scan Target');
+  destroyChart('lensscan');
+  CHARTS['lensscan'] = new Chart(document.getElementById('chart-lens-scan'), {
+    type:'line',
+    data:{ labels:months, datasets:[
+      { label:'Lens Scan факт', data:lensScan, borderColor:COLORS.teal, backgroundColor:COLORS.teal+'22', fill:true, pointRadius:2, borderWidth:2, tension:0.3 },
+      { label:'Цель', data:lensScanTarget, borderColor:COLORS.neutral, borderDash:[5,4], pointRadius:0, borderWidth:1.5 }
+    ]},
+    options: baseLineOptions({ scales:{ x:{grid:{color:COLORS.grid}}, y:{ grid:{color:COLORS.grid}, ticks:{ callback:v=>(v*100).toFixed(0)+'%' } } } })
+  });
+}
+
+/* =============================================================================
+   ТОЧКА ВХОДА
+   ============================================================================= */
+fetchWorkbook();
+</script>
+</body>
+</html>
