@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Приглашение</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --card-bg: #ffffff;
+    --text: #1c1c1c;
+    --muted: #6b6b6b;
+    --accent: #2b6b4f;
+    --accent-dark: #1f5038;
+    --no-btn: #e9e5df;
+    --no-btn-text: #4a4a4a;
+    --border: #e3ded6;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    position: relative;
+    overflow: hidden;
+    padding: 20px;
+  }
+
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 48px 40px;
+    max-width: 440px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.06);
+    position: relative;
+    animation: fadeIn 0.5s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .icon {
+    font-size: 40px;
+    margin-bottom: 16px;
+  }
+
+  .message {
+    font-size: 19px;
+    line-height: 1.55;
+    margin: 0 0 32px 0;
+    color: var(--text);
+  }
+
+  .message b {
+    color: var(--accent-dark);
+  }
+
+  .buttons {
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    min-height: 56px;
+  }
+
+  button {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 16px;
+    padding: 13px 28px;
+    border-radius: 10px;
+    border: none;
+    cursor: pointer;
+    transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+
+  #yesBtn {
+    background: var(--accent);
+    color: #fff;
+    font-weight: bold;
+  }
+
+  #yesBtn:hover {
+    background: var(--accent-dark);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(43,107,79,0.28);
+  }
+
+  #noBtn {
+    background: var(--no-btn);
+    color: var(--no-btn-text);
+    position: relative;
+  }
+
+  #noBtn.fleeing {
+    position: fixed;
+    z-index: 50;
+  }
+
+  .result {
+    display: none;
+    animation: fadeIn 0.4s ease;
+  }
+
+  .result.show {
+    display: block;
+  }
+
+  .result .message {
+    margin-bottom: 24px;
+  }
+
+  .cal-links {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .cal-links a {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 15px;
+    text-decoration: none;
+    padding: 13px 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    color: var(--text);
+    background: #fbfaf8;
+    transition: background 0.15s ease, border-color 0.15s ease;
+  }
+
+  .cal-links a:hover {
+    background: #f0eee9;
+    border-color: #d5cec1;
+  }
+
+  .cal-links .em {
+    font-size: 18px;
+  }
+
+  .details {
+    margin-top: 24px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  #yesForm { display: block; }
+</style>
+</head>
+<body>
+
+<div class="card">
+
+  <!-- ===== БЛОК ВОПРОСА ===== -->
+  <div id="yesForm">
+    <div class="icon">🍺</div>
+    <p class="message" id="questionText"></p>
+    <div class="buttons">
+      <button id="yesBtn">Да</button>
+      <button id="noBtn">Нет</button>
+    </div>
+  </div>
+
+  <!-- ===== БЛОК ПОСЛЕ "ДА" ===== -->
+  <div class="result" id="resultBlock">
+    <div class="icon">🎉</div>
+    <p class="message">Отлично, ждём тебя!</p>
+    <div class="cal-links">
+      <a id="icalLink" href="#" target="_blank" rel="noopener">
+        <span class="em">📅</span> Добавить в календарь (iCal)
+      </a>
+      <a id="outlookLink" href="#" target="_blank" rel="noopener">
+        <span class="em">📆</span> Добавить в календарь (Outlook)
+      </a>
+    </div>
+    <p class="details" id="detailsText"></p>
+  </div>
+
+</div>
+
+<script>
+/* ===================== НАСТРОЙКИ — МЕНЯЙ ЗДЕСЬ ===================== */
+const EVENT_ACTION   = "пить пиво";        // что делаем
+const EVENT_DATE     = "18.08.2026";       // дата в формате ДД.ММ.ГГГГ
+const EVENT_TIME     = "20:00";            // время в формате ЧЧ:ММ
+const EVENT_LOCATION = "Ленина 1";         // адрес
+const EVENT_DURATION_HOURS = 2;            // продолжительность события в часах
+/* ==================================================================== */
+
+// Формируем текст вопроса
+document.getElementById('questionText').innerHTML =
+  `Я иду с вами ${EVENT_ACTION} <b>${EVENT_DATE}</b> в <b>${EVENT_TIME}</b> по адресу <b>${EVENT_LOCATION}</b>!`;
+
+document.getElementById('detailsText').textContent =
+  `${EVENT_ACTION}, ${EVENT_DATE} в ${EVENT_TIME}, ${EVENT_LOCATION}`;
+
+// Парсим дату/время в объект Date (локальное время браузера)
+function parseEventDate() {
+  const [day, month, year] = EVENT_DATE.split('.').map(Number);
+  const [hour, minute] = EVENT_TIME.split(':').map(Number);
+  return new Date(year, month - 1, day, hour, minute, 0);
+}
+
+function pad(n) { return n.toString().padStart(2, '0'); }
+
+// Формат для iCal / Outlook-online: YYYYMMDDTHHMMSS (локальное время без Z)
+function formatICalLocal(date) {
+  return `${date.getFullYear()}${pad(date.getMonth()+1)}${pad(date.getDate())}T${pad(date.getHours())}${pad(date.getMinutes())}00`;
+}
+
+const startDate = parseEventDate();
+const endDate = new Date(startDate.getTime() + EVENT_DURATION_HOURS * 60 * 60 * 1000);
+
+const startStr = formatICalLocal(startDate);
+const endStr = formatICalLocal(endDate);
+
+const eventTitle = `Идём ${EVENT_ACTION}`;
+const eventDescription = `Встреча: ${EVENT_ACTION} по адресу ${EVENT_LOCATION}`;
+
+/* ---------- ССЫЛКА ДЛЯ iCAL (генерация .ics файла на лету) ---------- */
+function buildICSFile() {
+  const icsContent = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Invite Page//RU',
+    'CALSCALE:GREGORIAN',
+    'BEGIN:VEVENT',
+    `UID:${Date.now()}@invite-page`,
+    `DTSTAMP:${formatICalLocal(new Date())}`,
+    `DTSTART:${startStr}`,
+    `DTEND:${endStr}`,
+    `SUMMARY:${eventTitle}`,
+    `DESCRIPTION:${eventDescription}`,
+    `LOCATION:${EVENT_LOCATION}`,
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n');
+
+  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
+  return URL.createObjectURL(blob);
+}
+
+/* ---------- ССЫЛКА ДЛЯ OUTLOOK (web) ---------- */
+function buildOutlookLink() {
+  const params = new URLSearchParams({
+    path: '/calendar/action/compose',
+    rru: 'addevent',
+    subject: eventTitle,
+    body: eventDescription,
+    location: EVENT_LOCATION,
+    startdt: startDate.toISOString(),
+    enddt: endDate.toISOString()
+  });
+  return `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`;
+}
+
+document.getElementById('outlookLink').href = buildOutlookLink();
+
+document.getElementById('icalLink').addEventListener('click', function(e) {
+  e.preventDefault();
+  const url = buildICSFile();
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'event.ics';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+});
+
+/* ---------- КНОПКА "ДА" ---------- */
+document.getElementById('yesBtn').addEventListener('click', function() {
+  document.getElementById('yesForm').style.display = 'none';
+  document.getElementById('resultBlock').classList.add('show');
+});
+
+/* ---------- УБЕГАЮЩАЯ КНОПКА "НЕТ" ---------- */
+const noBtn = document.getElementById('noBtn');
+
+function moveNoButton() {
+  const btnRect = noBtn.getBoundingClientRect();
+  const margin = 20;
+  const maxX = window.innerWidth - btnRect.width - margin;
+  const maxY = window.innerHeight - btnRect.height - margin;
+
+  const randomX = Math.max(margin, Math.random() * maxX);
+  const randomY = Math.max(margin, Math.random() * maxY);
+
+  noBtn.classList.add('fleeing');
+  noBtn.style.left = randomX + 'px';
+  noBtn.style.top = randomY + 'px';
+}
+
+// Убегает при попытке клика (mousedown срабатывает до click — надёжнее)
+noBtn.addEventListener('mousedown', function(e) {
+  e.preventDefault();
+  moveNoButton();
+});
+
+// На мобильных — убегает при касании
+noBtn.addEventListener('touchstart', function(e) {
+  e.preventDefault();
+  moveNoButton();
+}, { passive: false });
+
+// Дополнительно: убегает и просто при наведении, чтобы точно нельзя было попасть
+noBtn.addEventListener('mouseover', function() {
+  // небольшая вероятность подвинуться уже при наведении, чтобы усложнить попадание
+  if (Math.random() < 0.35) {
+    moveNoButton();
+  }
+});
+</script>
+
+</body>
+</html>
