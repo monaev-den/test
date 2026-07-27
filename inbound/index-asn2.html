@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Дашборд 08.07 9-30</title>
+<title>Дашборд приёмки товара на склад</title>
 
 <!-- ==========================================================================
      ШРИФТЫ
@@ -198,6 +198,22 @@
   .chart-card p.hint{ margin:0 0 10px; font-size:11.5px; color: var(--text-dim); }
   .chart-wrap{ position:relative; height: 250px; }
   .chart-wrap.tall{ height: 300px; }
+
+  /* Заглушка, если Chart.js не удалось загрузить (например нет интернета) —
+     показываем вместо графика короткое пояснение, но не ломаем всю страницу. */
+  .chart-unavailable{
+    height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:8px; text-align:center; color: var(--text-faint); font-size:12px; padding: 10px;
+  }
+  .chart-unavailable .ico{ font-size:22px; opacity:.6; }
+
+  section.charts.charts-disabled{ display:none; }
+  .charts-disabled-note{
+    display:none;
+    background: var(--panel); border:1px solid var(--line); border-radius: var(--radius-lg);
+    padding: 14px 18px; margin-bottom: 22px; color: var(--text-dim); font-size:12.5px;
+  }
+  .charts-disabled-note.show{ display:block; }
 
   /* ============================================================================
      СЕКЦИЯ "МАШИНЫ" — заголовок раздела
@@ -438,7 +454,11 @@
       <!-- ---------------------------------------------------------------- -->
       <!-- 2. ГРАФИКИ -->
       <!-- ---------------------------------------------------------------- -->
-      <section class="charts">
+      <div class="charts-disabled-note" id="chartsDisabledNote">
+        ⚠️ Библиотека графиков (Chart.js) не загрузилась — вероятно, нет доступа к интернету.
+        Остальная часть дашборда (KPI, машины, паллеты, ASN) работает в обычном режиме.
+      </div>
+      <section class="charts" id="chartsSection1">
         <div class="chart-card">
           <h3>Приёмка по машинам</h3>
           <p class="hint">План (Qty ASN) vs Факт по каждой машине, отсортировано по номеру</p>
@@ -451,7 +471,7 @@
         </div>
       </section>
 
-      <section class="charts">
+      <section class="charts" id="chartsSection2">
         <div class="chart-card">
           <h3>Приёмка по типу товара</h3>
           <p class="hint">Qty ASN vs Факт по колонке «Тип»</p>
@@ -488,8 +508,15 @@
   <!-- Плавающая подсказка по ASN -->
   <div id="asnTooltip"></div>
 
-  <!-- Chart.js для графиков (аналитика) -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Chart.js для графиков (аналитика).
+       Загружаем асинхронно с fallback на альтернативный CDN — если оба недоступны
+       (например нет интернета), дашборд всё равно должен построиться: графики
+       в этом случае будут аккуратно скрыты с пояснением, а KPI/машины/паллеты/ASN
+       отрисуются как обычно (это не зависит от Chart.js). -->
+  <script>
+    window.__chartJsLoaded = false;
+    window.__chartJsFailed = false;
+  </script>
 
   <script>
   /* ============================================================================
@@ -522,6 +549,45 @@
           машин с горизонтальной лентой паллет, отсортированные по убыванию
           номера машины (как в примере дашборда).
      ============================================================================ */
+
+  // ----------------------------------------------------------------------------
+  // 0a. Динамическая загрузка Chart.js с несколькими источниками (fallback).
+  //     Нужна, т.к. страница может открываться в среде без доступа к какому-то
+  //     конкретному CDN. Если ни один источник не сработал — резолвим с false,
+  //     и дальше дашборд просто не рисует графики, но не падает целиком.
+  // ----------------------------------------------------------------------------
+  function loadScriptOnce(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.async = true;
+      s.onload = () => resolve(true);
+      s.onerror = () => reject(new Error('Не удалось загрузить скрипт: ' + src));
+      document.head.appendChild(s);
+    });
+  }
+
+  async function loadChartJs() {
+    // Несколько альтернативных источников на случай, если один из CDN недоступен.
+    const sources = [
+      'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js',
+      'https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js',
+      'https://unpkg.com/chart.js@4.4.4/dist/chart.umd.min.js'
+    ];
+    for (const src of sources) {
+      try {
+        await loadScriptOnce(src);
+        if (typeof Chart !== 'undefined') {
+          window.__chartJsLoaded = true;
+          return true;
+        }
+      } catch (e) {
+        // пробуем следующий источник
+      }
+    }
+    window.__chartJsFailed = true;
+    return false;
+  }
 
   // ----------------------------------------------------------------------------
   // 0. Вспомогательные функции разбора чисел / строк в формате исходного CSV
@@ -614,7 +680,26 @@
   }
 
   // ----------------------------------------------------------------------------
-  // 2. Загрузка файла asn.csv (лежит рядом с index.html), декодирование Windows-1251
+  // 2. Загрузка файла asn.csv (лежит рядом с index.html) с АВТОопределением кодировки.
+  //
+  //    Почему это важно: исходная выгрузка из 1С обычно приходит в Windows-1251,
+  //    но если файл потом пересохранить через Excel как "CSV UTF-8" (или просто
+  //    открыть/сохранить в другом редакторе), кодировка меняется на UTF-8, часто
+  //    с добавлением BOM-маркера в начале файла. Если декодировать UTF-8-файл
+  //    как Windows-1251 (или наоборот), заголовки колонок превращаются в "кракозябры"
+  //    — например "Машина" перестаёт совпадать с ключом в объекте записи, и ВСЕ
+  //    строки в buildHierarchy() валятся в одну машину "(без машины)" — именно
+  //    такой симптом (правильное количество ASN, но всё в одной "машине") и
+  //    указывает на ошибку кодировки, а не на ошибку логики группировки.
+  //
+  //    Поэтому мы не считаем кодировку заранее, а определяем её по самим байтам:
+  //      1) Если файл начинается с UTF-8 BOM (EF BB BF) — это точно UTF-8.
+  //      2) Иначе пробуем декодировать как UTF-8 и проверяем, не возникло ли
+  //         "мусорных" символов-заменителей (U+FFFD) — если возникли, значит
+  //         байты на самом деле не UTF-8, и надёжнее использовать Windows-1251.
+  //      3) Дополнительно сверяем, что в первой строке (заголовке) нашёлся
+  //         ожидаемый столбец "Машина" — если нет ни при одном варианте
+  //         декодирования, дашборд явно предупредит об этом в ошибке загрузки.
   // ----------------------------------------------------------------------------
   async function loadCsvRecords() {
     const resp = await fetch('asn.csv', { cache: 'no-store' });
@@ -622,18 +707,57 @@
       throw new Error('Не удалось получить файл asn.csv (HTTP ' + resp.status + '). Убедитесь, что он лежит рядом с index.html.');
     }
     const buffer = await resp.arrayBuffer();
+    const text = decodeCsvBuffer(buffer);
 
-    // Пытаемся декодировать как Windows-1251 (типичная кодировка выгрузок из 1С/Excel в РФ).
-    // Если браузер по какой-то причине не поддерживает эту кодировку, откатываемся к UTF-8.
-    let text;
-    try {
-      const decoder = new TextDecoder('windows-1251');
-      text = decoder.decode(buffer);
-    } catch (e) {
-      text = new TextDecoder('utf-8').decode(buffer);
+    const records = parseCsv(text, ';');
+
+    // Явная проверка: если после парсинга в заголовке нет ожидаемой колонки
+    // "Машина" — лучше сразу сообщить об этом понятной ошибкой, чем молча
+    // свалить все строки в "(без машины)".
+    if (records.length > 0 && !('Машина' in records[0])) {
+      const gotColumns = Object.keys(records[0]).join(', ');
+      throw new Error(
+        'В файле asn.csv не найдена колонка "Машина". Похоже, что кодировка файла ' +
+        'определена неверно, либо изменился разделитель/названия колонок. ' +
+        'Найденные колонки: ' + gotColumns
+      );
     }
 
-    return parseCsv(text, ';');
+    return records;
+  }
+
+  /**
+   * Определяет кодировку CSV-файла по байтам и возвращает уже декодированный текст.
+   * Поддерживает: UTF-8 (с BOM и без), Windows-1251 (типичная кодировка выгрузок 1С/Excel).
+   */
+  function decodeCsvBuffer(buffer) {
+    const bytes = new Uint8Array(buffer);
+
+    // 1) Явный UTF-8 BOM (EF BB BF) в начале файла -> однозначно UTF-8.
+    const hasBom = bytes.length >= 3 && bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF;
+    if (hasBom) {
+      return new TextDecoder('utf-8').decode(buffer);
+    }
+
+    // 2) Пробуем UTF-8 в "строгом" режиме (fatal: true) — если байты не являются
+    //    корректной UTF-8-последовательностью, decode() выбросит исключение,
+    //    и мы точно поймём, что нужно пробовать Windows-1251.
+    try {
+      const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
+      return strictUtf8.decode(buffer);
+    } catch (e) {
+      // не UTF-8 (или содержит байты, невалидные для UTF-8) — пробуем Windows-1251 ниже
+    }
+
+    // 3) Windows-1251 — стандартная кодировка для выгрузок из 1С/Excel в РФ.
+    try {
+      return new TextDecoder('windows-1251').decode(buffer);
+    } catch (e) {
+      // Если вдруг и это не сработало (крайне маловероятно в браузере) —
+      // возвращаем "нестрогий" UTF-8 как последний вариант, чтобы страница
+      // хотя бы не упала полностью.
+      return new TextDecoder('utf-8').decode(buffer);
+    }
   }
 
   // ----------------------------------------------------------------------------
@@ -969,7 +1093,7 @@
   function renderMachines(machines) {
     const root = document.getElementById('machinesRoot');
     // Сортировка по убыванию номера машины (последняя приехавшая — сверху), как в примере.
-    const sorted = [...machines.values()].sort((a, b) => a.id.localeCompare(b.id));
+    const sorted = [...machines.values()].sort((a, b) => b.id.localeCompare(a.id));
 
     document.getElementById('machineCountLabel').textContent = sorted.length + ' машин(ы)';
 
@@ -1197,6 +1321,27 @@
     setInterval(tick, 1000);
   }
 
+  /** Оборачивает рендер одного графика в try/catch, чтобы ошибка в одном графике
+   *  не прерывала построение остальных (каждый renderChart* независим). */
+  function safeRenderChart(label, fn) {
+    try { fn(); }
+    catch (e) { console.error(label + ' — ошибка построения:', e); }
+  }
+
+  /**
+   * Прячет блоки с графиками и показывает пояснительную плашку.
+   * Вызывается, если Chart.js не удалось загрузить ни с одного источника —
+   * остальная часть дашборда (KPI/машины/паллеты/ASN) при этом не страдает.
+   */
+  function showChartsUnavailable() {
+    const note = document.getElementById('chartsDisabledNote');
+    const s1 = document.getElementById('chartsSection1');
+    const s2 = document.getElementById('chartsSection2');
+    if (note) note.classList.add('show');
+    if (s1) s1.classList.add('charts-disabled');
+    if (s2) s2.classList.add('charts-disabled');
+  }
+
   // ----------------------------------------------------------------------------
   // 10. ТОЧКА ВХОДА
   // ----------------------------------------------------------------------------
@@ -1216,13 +1361,31 @@
       document.getElementById('loadingBox').style.display = 'none';
       document.getElementById('dashboardRoot').style.display = 'block';
 
+      // ---- Часть 1: KPI, машины, паллеты, ASN — не зависит от Chart.js,
+      //      рендерится всегда, даже если графики не загрузятся. ----
       renderKpis(stats);
-      renderChartByMachine(machines);
-      renderChartStatusDonut(stats);
-      renderChartByType(records);
-      renderChartTopRemainder(machines);
       renderMachines(machines);
       setupFilters();
+
+      // ---- Часть 2: графики — опциональны. Если Chart.js не загрузился
+      //      (нет интернета / заблокирован CDN), просто прячем блок графиков
+      //      с понятным пояснением и не мешаем остальному дашборду работать. ----
+      try {
+        const chartJsReady = await loadChartJs();
+        if (chartJsReady && typeof Chart !== 'undefined') {
+          // Каждый график рендерится независимо: если один упадёт из-за
+          // неожиданных данных, остальные три всё равно построятся.
+          safeRenderChart('График "по машинам"', () => renderChartByMachine(machines));
+          safeRenderChart('График "статус ASN"', () => renderChartStatusDonut(stats));
+          safeRenderChart('График "по типу"', () => renderChartByType(records));
+          safeRenderChart('График "топ остатков"', () => renderChartTopRemainder(machines));
+        } else {
+          showChartsUnavailable();
+        }
+      } catch (chartErr) {
+        console.error('Графики не построены:', chartErr);
+        showChartsUnavailable();
+      }
 
     } catch (err) {
       console.error(err);
