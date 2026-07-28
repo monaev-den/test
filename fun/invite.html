@@ -81,6 +81,21 @@
     min-height: 56px;
   }
 
+  /* Резервируем место под "Нет", чтобы "Да" не двигалась,
+     когда "Нет" переключается на position: fixed */
+  .no-btn-placeholder {
+    display: inline-block;
+    width: 0;
+    height: 46px;
+    visibility: hidden;
+    overflow: hidden;
+    transition: none;
+  }
+
+  .no-btn-placeholder.active {
+    width: 90px;
+  }
+
   button {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 16px;
@@ -179,6 +194,7 @@
     <div class="buttons">
       <button id="yesBtn">Да</button>
       <button id="noBtn">Нет</button>
+      <span class="no-btn-placeholder" id="noBtnPlaceholder" aria-hidden="true">Нет</span>
     </div>
   </div>
 
@@ -187,11 +203,8 @@
     <div class="icon">🎉</div>
     <p class="message">Отлично, ждём тебя!</p>
     <div class="cal-links">
-      <a id="icalLink" href="#" target="_blank" rel="noopener">
-        <span class="em">📅</span> Добавить в календарь (iCal)
-      </a>
-      <a id="outlookLink" href="#" target="_blank" rel="noopener">
-        <span class="em">📆</span> Добавить в календарь (Outlook)
+      <a id="icalLink" href="#" rel="noopener">
+        <span class="em">📅</span> Добавить в календарь
       </a>
     </div>
     <p class="details" id="detailsText"></p>
@@ -238,56 +251,37 @@ const endStr = formatICalLocal(endDate);
 const eventTitle = `Идём ${EVENT_ACTION}`;
 const eventDescription = `Встреча: ${EVENT_ACTION} по адресу ${EVENT_LOCATION}`;
 
-/* ---------- ССЫЛКА ДЛЯ iCAL (генерация .ics файла на лету) ---------- */
-function buildICSFile() {
-  const icsContent = [
+/* ---------- ГЕНЕРАЦИЯ .ICS ФАЙЛА (data URI — работает во всех браузерах) ---------- */
+function buildICSDataUri() {
+  const icsLines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Invite Page//RU',
     'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
     'BEGIN:VEVENT',
-    `UID:${Date.now()}@invite-page`,
+    `UID:${Date.now()}-invite@page`,
     `DTSTAMP:${formatICalLocal(new Date())}`,
     `DTSTART:${startStr}`,
     `DTEND:${endStr}`,
     `SUMMARY:${eventTitle}`,
     `DESCRIPTION:${eventDescription}`,
     `LOCATION:${EVENT_LOCATION}`,
+    'STATUS:CONFIRMED',
     'END:VEVENT',
     'END:VCALENDAR'
   ].join('\r\n');
 
-  const blob = new Blob([icsContent], { type: 'text/calendar;charset=utf-8' });
-  return URL.createObjectURL(blob);
+  // encodeURIComponent + data URI — самый надёжный кроссбраузерный способ,
+  // не зависит от Blob/createObjectURL, которые иногда блокируются.
+  return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsLines);
 }
 
-/* ---------- ССЫЛКА ДЛЯ OUTLOOK (web) ---------- */
-function buildOutlookLink() {
-  const params = new URLSearchParams({
-    path: '/calendar/action/compose',
-    rru: 'addevent',
-    subject: eventTitle,
-    body: eventDescription,
-    location: EVENT_LOCATION,
-    startdt: startDate.toISOString(),
-    enddt: endDate.toISOString()
-  });
-  return `https://outlook.live.com/calendar/0/deeplink/compose?${params.toString()}`;
-}
-
-document.getElementById('outlookLink').href = buildOutlookLink();
-
-document.getElementById('icalLink').addEventListener('click', function(e) {
-  e.preventDefault();
-  const url = buildICSFile();
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'event.ics';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 2000);
-});
+// Ссылка формируется сразу при загрузке страницы (не по клику),
+// чтобы браузер видел обычный <a href="..." download> без JS-перехвата.
+const icalLinkEl = document.getElementById('icalLink');
+icalLinkEl.href = buildICSDataUri();
+icalLinkEl.setAttribute('download', 'event.ics');
 
 /* ---------- КНОПКА "ДА" ---------- */
 document.getElementById('yesBtn').addEventListener('click', function() {
@@ -297,8 +291,20 @@ document.getElementById('yesBtn').addEventListener('click', function() {
 
 /* ---------- УБЕГАЮЩАЯ КНОПКА "НЕТ" ---------- */
 const noBtn = document.getElementById('noBtn');
+const noBtnPlaceholder = document.getElementById('noBtnPlaceholder');
 
 function moveNoButton() {
+  const isFirstFlee = !noBtn.classList.contains('fleeing');
+
+  // Перед первым побегом: замеряем текущий размер кнопки и фиксируем
+  // такое же место через placeholder, чтобы "Да" осталась на месте.
+  if (isFirstFlee) {
+    const rect = noBtn.getBoundingClientRect();
+    noBtnPlaceholder.style.width = rect.width + 'px';
+    noBtnPlaceholder.classList.add('active');
+    noBtn.style.width = rect.width + 'px';
+  }
+
   const btnRect = noBtn.getBoundingClientRect();
   const margin = 20;
   const maxX = window.innerWidth - btnRect.width - margin;
