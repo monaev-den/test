@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Идем с нами?</title>
+<title>Приглашение</title>
 <style>
   :root {
     --bg: #f7f5f2;
@@ -203,7 +203,7 @@
     <div class="icon">🎉</div>
     <p class="message">Отлично, ждём тебя!</p>
     <div class="cal-links">
-      <a id="icalLink" href="#" rel="noopener">
+      <a id="icalLink" href="event.ics" rel="noopener">
         <span class="em">📅</span> Добавить в календарь
       </a>
     </div>
@@ -214,11 +214,11 @@
 
 <script>
 /* ===================== НАСТРОЙКИ — МЕНЯЙ ЗДЕСЬ ===================== */
-const EVENT_ACTION   = "пить пиво до поздна";        // что делаем
-const EVENT_DATE     = "31.07.2026";       // дата в формате ДД.ММ.ГГГГ
-const EVENT_TIME     = "19:00";            // время в формате ЧЧ:ММ
-const EVENT_LOCATION = "метро Новослободская";         // адрес
-const EVENT_DURATION_HOURS = 8;            // продолжительность события в часах
+const EVENT_ACTION   = "пить пиво";        // что делаем
+const EVENT_DATE     = "18.08.2026";       // дата в формате ДД.ММ.ГГГГ
+const EVENT_TIME     = "20:00";            // время в формате ЧЧ:ММ
+const EVENT_LOCATION = "Ленина 1";         // адрес
+const EVENT_DURATION_HOURS = 2;            // продолжительность события в часах
 /* ==================================================================== */
 
 // Формируем текст вопроса
@@ -245,43 +245,18 @@ function formatICalLocal(date) {
 const startDate = parseEventDate();
 const endDate = new Date(startDate.getTime() + EVENT_DURATION_HOURS * 60 * 60 * 1000);
 
-const startStr = formatICalLocal(startDate);
-const endStr = formatICalLocal(endDate);
+/* ---------- .ICS ФАЙЛ ----------
+   По аналогии с expocentr.ru ссылка "Добавить в календарь" ведёт
+   на обычный статический файл event.ics (лежит рядом с этой страницей),
+   без JS-генерации на лету. Это самый надёжный способ — работает
+   одинаково на десктопе и на мобильных устройствах (iOS/Android),
+   т.к. браузер сам понимает MIME-тип .ics по расширению файла.
 
-const eventTitle = `Идём ${EVENT_ACTION}`;
-const eventDescription = `Встреча: ${EVENT_ACTION} по адресу ${EVENT_LOCATION}`;
-
-/* ---------- ГЕНЕРАЦИЯ .ICS ФАЙЛА (data URI — работает во всех браузерах) ---------- */
-function buildICSDataUri() {
-  const icsLines = [
-    'BEGIN:VCALENDAR',
-    'VERSION:2.0',
-    'PRODID:-//Invite Page//RU',
-    'CALSCALE:GREGORIAN',
-    'METHOD:PUBLISH',
-    'BEGIN:VEVENT',
-    `UID:${Date.now()}-invite@page`,
-    `DTSTAMP:${formatICalLocal(new Date())}`,
-    `DTSTART:${startStr}`,
-    `DTEND:${endStr}`,
-    `SUMMARY:${eventTitle}`,
-    `DESCRIPTION:${eventDescription}`,
-    `LOCATION:${EVENT_LOCATION}`,
-    'STATUS:CONFIRMED',
-    'END:VEVENT',
-    'END:VCALENDAR'
-  ].join('\r\n');
-
-  // encodeURIComponent + data URI — самый надёжный кроссбраузерный способ,
-  // не зависит от Blob/createObjectURL, которые иногда блокируются.
-  return 'data:text/calendar;charset=utf-8,' + encodeURIComponent(icsLines);
-}
-
-// Ссылка формируется сразу при загрузке страницы (не по клику),
-// чтобы браузер видел обычный <a href="..." download> без JS-перехвата.
-const icalLinkEl = document.getElementById('icalLink');
-icalLinkEl.href = buildICSDataUri();
-icalLinkEl.setAttribute('download', 'event.ics');
+   Если меняешь EVENT_ACTION / EVENT_DATE / EVENT_TIME / EVENT_LOCATION
+   выше — не забудь обновить и сам файл event.ics соответствующими
+   значениями (DTSTART, DTEND, SUMMARY, DESCRIPTION, LOCATION).
+------------------------------------------------------------------ */
+document.getElementById('icalLink').setAttribute('download', 'event.ics');
 
 /* ---------- КНОПКА "ДА" ---------- */
 document.getElementById('yesBtn').addEventListener('click', function() {
