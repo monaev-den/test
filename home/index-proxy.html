@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>СИГНАЛ — ежедневные MTProto прокси</title>
+<style>
+
+  /*
+    Шрифты:
+    - JetBrains Mono — "техническая" гарнитура для чисел, хостов, лейблов —
+      подчёркивает, что это данные с прибора, а не маркетинговый текст.
+    - Manrope — спокойный гротеск для заголовка и пояснений.
+  */
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+  :root{
+    /* ===== ЦВЕТОВАЯ СХЕМА ("осциллограф/радар") ===== */
+    --void:#07080a;         /* фон страницы, почти чёрный */
+    --void-2:#0d0f12;       /* запасной тёмный тон (не используется напрямую, оставлен про запас) */
+    --panel:#111318;        /* фон карточек прокси */
+    --line:#22262c;         /* тонкие разделители/рамки */
+
+    --signal:#c8ff2e;       /* кислотный лайм — акцент первого источника + сигнальные индикаторы */
+    --signal-dim:#8fb520;   /* приглушённый лайм — для 3-й "полоски" сигнала и т.п. */
+
+    --hot:#ff2d78;          /* маджента — раньше была цветом кнопки, теперь используется для "плохого" пинга */
+    --hot-dim:#b8205a;      /* приглушённая маджента — цвет ошибок в логе */
+
+    --ice:#4fd9ff;          /* циан — акцент второго источника (kort0881) */
+    --amber:#ffb020;        /* янтарный — акцент третьего источника (shablin) + средний пинг */
+
+    /* НОВЫЙ, МЕНЕЕ АГРЕССИВНЫЙ ЦВЕТ КНОПКИ:
+       вместо кислотно-розовой мадженты берём приглушённый бирюзово-зелёный (teal).
+       Он остаётся акцентным на тёмном фоне, но не "кричит" и не ассоциируется
+       с ошибкой/тревогой, как ярко-розовый. */
+    --cta:#3fd6a3;
+    --cta-dim:#2ba07a;
+
+    --text:#eef1e8;         /* основной текст */
+    --text-dim:#8a9088;     /* второстепенный текст */
+    --text-faint:#4d534c;   /* совсем приглушённый текст (лог, подписи) */
+  }
+
+  *{box-sizing:border-box; margin:0; padding:0;}
+
+  html{background:var(--void);}
+
+  body{
+    /* Два мягких радиальных "засвета" в углах — намёк на экран прибора,
+       не перегружая композицию. */
+    background:
+      radial-gradient(ellipse 900px 500px at 15% -10%, rgba(200,255,46,0.06), transparent 60%),
+      radial-gradient(ellipse 700px 600px at 100% 10%, rgba(63,214,163,0.06), transparent 55%),
+      var(--void);
+    color:var(--text);
+    font-family:'Manrope', sans-serif;
+    min-height:100vh;
+    padding-bottom:80px;
+    position:relative;
+  }
+
+  /* Тонкий сканлайн-паттерн поверх всей страницы — ощущение экрана прибора.
+     mix-blend-mode:overlay делает его почти незаметным, но добавляет фактуру. */
+  body::before{
+    content:'';
+    position:fixed; inset:0;
+    background:repeating-linear-gradient(
+      to bottom,
+      rgba(255,255,255,0.012) 0px,
+      rgba(255,255,255,0.012) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+    pointer-events:none;
+    z-index:100;
+    mix-blend-mode:overlay;
+  }
+
+  .mono{font-family:'JetBrains Mono', monospace;}
+
+  /* ===== ШАПКА ===== */
+  header{
+    padding:28px 20px 20px;
+    max-width:640px;
+    margin:0 auto;
+  }
+
+  .eyebrow{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    letter-spacing:0.14em;
+    color:var(--signal);
+    text-transform:uppercase;
+    margin-bottom:14px;
+  }
+
+  /* Пульсирующая точка — живой индикатор "мы на связи" */
+  .eyebrow .dot{
+    width:7px; height:7px;
+    border-radius:50%;
+    background:var(--signal);
+    box-shadow:0 0 8px var(--signal), 0 0 2px var(--signal);
+    animation:pulse-dot 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot{
+    0%,100%{opacity:1;}
+    50%{opacity:0.35;}
+  }
+
+  h1{
+    font-size:34px;
+    line-height:1.05;
+    font-weight:800;
+    letter-spacing:-0.02em;
+    color:var(--text);
+    margin-bottom:10px;
+  }
+
+  h1 span{
+    color:var(--signal);
+    text-shadow:0 0 24px rgba(200,255,46,0.35);
+  }
+
+  .sub{
+    font-size:15px;
+    color:var(--text-dim);
+    line-height:1.5;
+    max-width:46ch;
+  }
+
+  .sub b{color:var(--text); font-weight:600;}
+
+  /* ===== БОЛЬШАЯ КНОПКА "ЖМИ МЕНЯ" ===== */
+  .fire-wrap{
+    max-width:640px;
+    margin:26px auto 0;
+    padding:0 20px;
+  }
+
+  #fireBtn{
+    width:100%;
+    padding:22px 24px;
+    /* Смягчённый цвет: приглушённый teal вместо кислотной мадженты.
+       Лёгкий градиент добавляет объём, не делая кнопку "кричащей". */
+    background:linear-gradient(135deg, var(--cta), var(--cta-dim));
+    color:#04140f; /* тёмный текст на светлом teal-фоне — хороший контраст без агрессии */
+    border:none;
+    border-radius:14px;
+    font-family:'JetBrains Mono', monospace;
+    font-size:17px;
+    font-weight:700;
+    letter-spacing:0.02em;
+    text-transform:uppercase;
+    cursor:pointer;
+    position:relative;
+    overflow:hidden;
+    /* Тень стала мягче и приглушённее — свечение, а не "неон" */
+    box-shadow:
+      0 0 0 1px rgba(63,214,163,0.35),
+      0 8px 28px -10px rgba(63,214,163,0.45);
+    transition:transform 0.15s ease, box-shadow 0.15s ease;
+    -webkit-tap-highlight-color:transparent;
+  }
+
+  #fireBtn:active{
+    transform:scale(0.98);
+  }
+
+  #fireBtn:disabled{
+    opacity:0.65;
+    cursor:default;
+  }
+
+  #fireBtn .btn-label{
+    position:relative;
+    z-index:2;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:10px;
+  }
+
+  /* Спиннер-кружок, показывается только пока идёт загрузка (класс .loading) */
+  #fireBtn .spinner{
+    width:16px; height:16px;
+    border-radius:50%;
+    border:2px solid rgba(4,20,15,0.25);
+    border-top-color:#04140f;
+    animation:spin 0.7s linear infinite;
+    display:none;
+  }
+
+  #fireBtn.loading .spinner{display:inline-block;}
+  /* Подмена текста кнопки на время загрузки через ::after,
+     чтобы не трогать DOM лишний раз */
+  #fireBtn.loading .btn-text::after{content:'СКАНИРУЮ ЭФИР…';}
+  #fireBtn.loading .btn-text{font-size:0;}
+  #fireBtn.loading .btn-text::after{font-size:17px;}
+
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .hint-below{
+    text-align:center;
+    font-size:12px;
+    color:var(--text-faint);
+    margin-top:10px;
+    font-family:'JetBrains Mono', monospace;
+  }
+
+  /* ===== ЖУРНАЛ СТАТУСА (лог "что сейчас происходит") ===== */
+  #statusLog{
+    max-width:640px;
+    margin:18px auto 0;
+    padding:0 20px;
+    display:none; /* показываем только после первого запуска huntProxies() */
+  }
+
+  #statusLog.show{display:block;}
+
+  .log-line{
+    font-family:'JetBrains Mono', monospace;
+    font-size:12.5px;
+    color:var(--text-faint);
+    padding:3px 0;
+    display:flex;
+    gap:8px;
+    align-items:baseline;
+  }
+
+  .log-line.ok{color:var(--signal-dim);}
+  .log-line.err{color:var(--hot-dim);}
+
+  .log-line .tag{
+    flex-shrink:0;
+    color:var(--text-faint);
+  }
+
+  /* ===== БЛОК РЕЗУЛЬТАТОВ ===== */
+  #results{
+    max-width:640px;
+    margin:0 auto;
+    padding:0 20px;
+  }
+
+  /* Каждый источник — отдельный блок с плавным появлением */
+  .source-block{
+    margin-top:32px;
+    opacity:0;
+    animation:fadeUp 0.5s ease forwards;
+  }
+
+  @keyframes fadeUp{
+    from{opacity:0; transform:translateY(10px);}
+    to{opacity:1; transform:translateY(0);}
+  }
+
+  .source-head{
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    margin-bottom:12px;
+    padding-bottom:10px;
+    border-bottom:1px solid var(--line);
+  }
+
+  .source-name{
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    font-weight:700;
+    letter-spacing:0.06em;
+    text-transform:uppercase;
+  }
+
+  /* У каждого из трёх источников — свой акцентный цвет,
+     чтобы визуально сразу разделять блоки в списке */
+  .source-block.src-a .source-name{color:var(--signal);}   /* SoliSpirit — лайм */
+  .source-block.src-b .source-name{color:var(--ice);}      /* kort0881 — циан */
+  .source-block.src-c .source-name{color:var(--amber);}    /* shablin — янтарь */
+
+  .source-meta{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    color:var(--text-faint);
+  }
+
+  /* ===== КАРТОЧКА ОДНОЙ ПРОКСИ-ССЫЛКИ =====
+     Вся карточка — это <a href="tg://proxy?...">, то есть весь прямоугольник кликабелен —
+     удобно тапать пальцем, не нужно попадать в маленькую ссылку-текст. */
+  .proxy-card{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:16px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:12px;
+    margin-bottom:10px;
+    text-decoration:none;
+    color:var(--text);
+    transition:border-color 0.15s ease, transform 0.1s ease, background 0.15s ease;
+    -webkit-tap-highlight-color:transparent;
+    position:relative;
+  }
+
+  .proxy-card:active{
+    transform:scale(0.985);
+    background:#161920;
+  }
+
+  /* Цвет рамки при нажатии подстраивается под цвет источника */
+  .src-a .proxy-card:active{border-color:var(--signal-dim);}
+  .src-b .proxy-card:active{border-color:var(--ice);}
+  .src-c .proxy-card:active{border-color:var(--amber);}
+
+  /* ===== ИНДИКАТОР УРОВНЯ СИГНАЛА (4 столбика, как индикатор связи на телефоне) =====
+     Это "фирменный" элемент дизайна: вместо голой цифры пинга человек
+     считывает качество прокси одним взглядом, как заряд сети на телефоне. */
+  .signal-bars{
+    display:flex;
+    align-items:flex-end;
+    gap:2px;
+    height:22px;
+    flex-shrink:0;
+    width:22px;
+  }
+
+  .signal-bars i{
+    display:block;
+    width:4px;
+    border-radius:1px;
+    background:var(--text-faint); /* серый по умолчанию — "неактивный" столбик */
+  }
+  .signal-bars i:nth-child(1){height:25%;}
+  .signal-bars i:nth-child(2){height:50%;}
+  .signal-bars i:nth-child(3){height:75%;}
+  .signal-bars i:nth-child(4){height:100%;}
+
+  /* Классы .sig-1..sig-4 задаются в JS по величине пинга (см. signalClass()) */
+  .sig-4 i{background:var(--signal); box-shadow:0 0 6px rgba(200,255,46,0.5);} /* отличный пинг — все 4 столбика горят */
+  .sig-3 i:nth-child(-n+3){background:var(--signal-dim);}                     /* хороший пинг — 3 столбика */
+  .sig-2 i:nth-child(-n+2){background:var(--amber);}                         /* средний пинг — 2 столбика */
+  .sig-1 i:nth-child(-n+1){background:var(--hot);}                           /* слабый пинг — 1 столбик */
+
+  .card-body{
+    flex:1;
+    min-width:0; /* чтобы text-overflow:ellipsis работал внутри flex-контейнера */
+  }
+
+  .card-host{
+    font-family:'JetBrains Mono', monospace;
+    font-size:14px;
+    font-weight:500;
+    color:var(--text);
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis; /* длинные хосты обрезаются с многоточием, не ломая вёрстку */
+  }
+
+  .card-meta{
+    display:flex;
+    gap:10px;
+    margin-top:4px;
+    flex-wrap:wrap;
+  }
+
+  /* "Чипы" с доп. информацией: пинг, TLS-режим, регион, порт */
+  .chip{
+    font-family:'JetBrains Mono', monospace;
+    font-size:11px;
+    padding:2px 7px;
+    border-radius:5px;
+    background:rgba(255,255,255,0.04);
+    color:var(--text-dim);
+    white-space:nowrap;
+  }
+
+  .chip.ping-good{color:var(--signal); background:rgba(200,255,46,0.08);}
+  .chip.ping-mid{color:var(--amber); background:rgba(255,176,32,0.08);}
+  .chip.ping-bad{color:var(--hot); background:rgba(255,45,120,0.08);}
+  .chip.tls{color:var(--ice); background:rgba(79,217,255,0.08);}
+
+  .card-arrow{
+    flex-shrink:0;
+    width:32px;
+    height:32px;
+    border-radius:8px;
+    background:rgba(255,255,255,0.04);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--text-dim);
+    font-size:16px;
+  }
+
+  .src-a .card-arrow{color:var(--signal);}
+  .src-b .card-arrow{color:var(--ice);}
+  .src-c .card-arrow{color:var(--amber);}
+
+  /* ===== СОСТОЯНИЕ "ИСТОЧНИК НЕ ОТВЕТИЛ" ===== */
+  .empty-state{
+    text-align:center;
+    padding:40px 20px;
+    color:var(--text-faint);
+    font-size:13px;
+    font-family:'JetBrains Mono', monospace;
+    border:1px dashed var(--line);
+    border-radius:12px;
+    margin-top:12px;
+  }
+
+  /* ===== ПОДВАЛ С ПОЯСНЕНИЕМ ПРО ИСТОЧНИКИ ===== */
+  .foot-note{
+    max-width:640px;
+    margin:36px auto 0;
+    padding:16px 20px;
+    font-size:12px;
+    line-height:1.6;
+    color:var(--text-faint);
+    border-top:1px solid var(--line);
+  }
+
+  .foot-note b{color:var(--text-dim);}
+
+  @media (min-width:600px){
+    h1{font-size:42px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="eyebrow"><span class="dot"></span><span>MTPROTO · ЕЖЕДНЕВНЫЙ ПЕРЕХВАТ</span></div>
+  <h1>Поймай <span>сигнал</span>,<br>не жди блокировки.</h1>
+  <p class="sub">Один тап — и три открытых источника отдают тебе <b>девять живых прокси</b> прямо сейчас. Тапай по карточке — Telegram сам предложит добавить прокси в список.</p>
+</header>
+
+<div class="fire-wrap">
+  <button id="fireBtn" onclick="huntProxies()">
+    <span class="btn-label">
+      <span class="spinner"></span>
+      <span class="btn-text">ЖМИ МЕНЯ</span>
+    </span>
+  </button>
+  <div class="hint-below">обновляй раз в день — вчерашние ссылки протухают</div>
+</div>
+
+<!-- Сюда построчно пишется, что сейчас происходит (какой источник опрашивается,
+     сколько прокси нашли, были ли ошибки). Полезно и для отладки, и чтобы
+     пользователь видел, что страница не "зависла", а реально работает. -->
+<div id="statusLog"></div>
+
+<!-- Сюда JS вставляет блоки по каждому источнику после получения данных -->
+<div id="results"></div>
+
+<div class="foot-note">
+  <b>Источники:</b> SoliSpirit/mtproto (обновление раз в ~12 ч), kort0881/telegram-proxy-collector (обновление ежечасно, с измеренным пингом) и shablin/mtproto-proxy (обновление раз в ~2 ч, с измеренной задержкой и статусом "жив/мёртв"). Все три — открытые GitHub-репозитории с прокси, собранными из публичных списков. Мы ничего не храним и не проксируем сами — только показываем актуальные ссылки на момент клика.
+</div>
+
+<script>
+/* ==========================================================================
+   ЛОГИКА СТРАНИЦЫ
+   --------------------------------------------------------------------------
+   Общая идея: GitHub Pages — это статический хостинг без бэкенда, поэтому
+   всю работу (запрос к источникам, парсинг, сортировку, рендер) делает
+   JS прямо в браузере пользователя, в момент клика на кнопку.
+
+   Это работает благодаря тому, что все три источника лежат на
+   raw.githubusercontent.com или *.github.io — оба домена отдают открытые
+   CORS-заголовки (Access-Control-Allow-Origin: *), поэтому браузер разрешает
+   странице с другого домена (например, username.github.io) их прочитать.
+   Никакой прокси-посредник для самого запроса не нужен.
+
+   Каждый источник хранит прокси в своём формате:
+     - SoliSpirit: обычный текстовый файл, одна ссылка вида
+       tg://proxy?server=...&port=...&secret=... на строку.
+     - kort0881:   JSON с массивом объектов { host, port, secret, ping, ... }.
+     - shablin:    тоже JSON с массивом объектов { server, port, secret,
+       latency, alive, ... }, дополнительно уже отсортированный по задержке
+       на стороне источника.
+
+   Ниже — по одной функции-парсеру на каждый формат, плюс общие функции
+   для сортировки, отрисовки и обработки ошибок.
+   ========================================================================== */
+
+/* ---- Описание источников -------------------------------------------------
+   key   — используется как CSS-класс (src-a/src-b/src-c) для цветового
+           различения блоков.
+   name  — человекочитаемое имя, выводится в заголовке блока.
+   meta  — короткая подпись о частоте обновления источника.
+   url   — основной адрес, откуда тянем данные.
+   altUrl (опционально) — запасной адрес на случай, если основной путь
+           изменится или будет недоступен (см. fetchSource).
+   type  — 'txt' или 'json', определяет, каким парсером обрабатывать ответ.
+--------------------------------------------------------------------------- */
+
+const SOURCE_A = {
+  key:'a',
+  name:'SOLISPIRIT / MTPROTO',
+  meta:'обновление ~12ч',
+  url:'https://raw.githubusercontent.com/SoliSpirit/mtproto/master/all_proxies.txt',
+  type:'txt'
+};
+
+const SOURCE_B = {
+  key:'b',
+  name:'KORT0881 / COLLECTOR',
+  meta:'обновление ~1ч · с пингом',
+  url:'https://raw.githubusercontent.com/kort0881/telegram-proxy-collector/main/verified/proxy_all_verified.json',
+  type:'json'
+};
+
+/* Третий источник: shablin/mtproto-proxy.
+   Автор хранит "сырые" данные в JSON, который подгружает его же GitHub Pages
+   (shablin.github.io/mtproto-proxy). Точное имя файла в репозитории не
+   зафиксировано публично, поэтому пробуем самый вероятный путь первым,
+   а если он не ответит — автоматически пробуем альтернативный (см. altUrl
+   и логику в fetchSource). Если оба пути окажутся недоступны, блок
+   источника просто покажет "источник недоступен" и не сломает страницу. */
+const SOURCE_C = {
+  key:'c',
+  name:'SHABLIN / MTPROTO-PROXY',
+  meta:'обновление ~2ч · с задержкой',
+  url:'https://raw.githubusercontent.com/shablin/mtproto-proxy/main/data/valid_proxy.json',
+  altUrl:'https://raw.githubusercontent.com/shablin/mtproto-proxy/master/data/valid_proxy.json',
+  type:'json'
+};
+
+const ALL_SOURCES = [SOURCE_A, SOURCE_B, SOURCE_C];
+
+
+/* ---- Утилиты для журнала статуса -----------------------------------------
+   log()      — добавляет одну строку в видимый лог под кнопкой.
+   clearLog() — очищает лог перед новым запуском (при повторном нажатии).
+--------------------------------------------------------------------------- */
+
+function log(msg, cls){
+  const box = document.getElementById('statusLog');
+  box.classList.add('show');
+  const line = document.createElement('div');
+  line.className = 'log-line ' + (cls || '');
+  line.innerHTML = '<span class="tag mono">›</span><span>' + msg + '</span>';
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearLog(){
+  const box = document.getElementById('statusLog');
+  box.innerHTML = '';
+  box.classList.remove('show');
+}
+
+
+/* ---- Сборка ссылки в формате, который открывает Telegram ------------------
+   tg://proxy?server=HOST&port=PORT&secret=SECRET — это кастомная схема
+   URL, зарегистрированная приложением Telegram на устройстве. Когда
+   пользователь тапает по такой ссылке, ОС передаёт её Telegram, а тот
+   сразу открывает экран "Подключиться к прокси?" с этими параметрами.
+   encodeURIComponent нужен, чтобы спецсимволы в secret/host не сломали URL.
+--------------------------------------------------------------------------- */
+
+function buildTgLink(server, port, secret){
+  return `tg://proxy?server=${encodeURIComponent(server)}&port=${encodeURIComponent(port)}&secret=${encodeURIComponent(secret)}`;
+}
+
+
+/* ---- Парсер текстового формата (SOURCE_A) ---------------------------------
+   Файл содержит по одной ссылке на строку, в виде tg://proxy?... или
+   https://t.me/proxy?... . Мы не можем создать URL-объект из tg://,
+   поэтому временно подменяем схему на https://t.me/proxy — это тот же
+   набор query-параметров, просто "легальный" для парсера URL в браузере.
+   Пинга в этом источнике нет, поэтому ping всегда null (это ожидаемо
+   и учитывается дальше при сортировке и отрисовке).
+--------------------------------------------------------------------------- */
+
+function parseTxtProxies(text){
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const out = [];
+  for(const line of lines){
+    try{
+      const u = new URL(line.replace('tg://proxy', 'https://t.me/proxy'));
+      const server = u.searchParams.get('server');
+      const port = u.searchParams.get('port');
+      const secret = u.searchParams.get('secret');
+      if(server && port && secret){
+        out.push({
+          server, port, secret,
+          ping:null,
+          // Секрет, начинающийся с "ee", означает режим Fake-TLS —
+          // прокси маскируется под обычный HTTPS-трафик и хуже
+          // поддаётся блокировке по DPI.
+          tls: secret.toLowerCase().startsWith('ee')
+        });
+      }
+    }catch(e){
+      /* Битую или нестандартную строку просто пропускаем,
+         не прерывая обработку остального файла. */
+    }
+  }
+  return out;
+}
+
+
+/* ---- Парсер JSON-формата (SOURCE_B и SOURCE_C) ----------------------------
+   Оба JSON-источника отдают либо голый массив объектов, либо объект-обёртку
+   с полем proxies/results, поэтому сперва нормализуем это в единый список.
+
+   Поля у источников называются немного по-разному:
+     - kort0881 использует host / ping
+     - shablin  использует server / latency
+   Поэтому берём значение из первого поля, которое реально присутствует
+   (p.host || p.server, p.ping ?? p.latency и т.д.) — так один и тот же
+   парсер обслуживает оба источника без дублирования кода.
+--------------------------------------------------------------------------- */
+
+function parseJsonProxies(data){
+  const list = Array.isArray(data) ? data : (data.proxies || data.results || []);
+  const out = [];
+  for(const p of list){
+    const server = p.host || p.server;
+    const port = p.port;
+    const secret = p.secret;
+    if(!server || !port || !secret) continue; // без этих трёх полей ссылку не собрать
+
+    // Задержка может называться ping (kort0881) или latency (shablin).
+    // Приводим оба варианта к единому числовому полю ping (в мс).
+    const rawLatency = (typeof p.ping === 'number') ? p.ping
+                      : (typeof p.latency === 'number') ? p.latency
+                      : null;
+
+    // Если источник явно помечает прокси как "не живой" — пропускаем его,
+    // чтобы в топ-3 попадали только рабочие сервера.
+    const isDead = (p.alive === false) || (p.status === 'dead') || (p.status === 'offline');
+    if(isDead) continue;
+
+    out.push({
+      server, port, secret,
+      ping: rawLatency,
+      region: p.region || null,
+      tls: (p.method === 'faketls') || (typeof secret === 'string' && secret.toLowerCase().startsWith('ee'))
+    });
+  }
+  return out;
+}
+
+
+/* ---- Перевод пинга в визуальные классы ------------------------------------
+   signalClass()   — какая "полоска сигнала" (1–4) отрисуется у карточки.
+   pingChipClass() — какой цвет получит текстовый чип с цифрой пинга.
+   Границы (150/400/800 мс и 200/500 мс) подобраны эмпирически:
+   до ~150 мс соединение ощущается мгновенным, свыше ~800 мс уже заметно
+   тормозит переписку с картинками/голосовыми.
+--------------------------------------------------------------------------- */
+
+function signalClass(ping){
+  if(ping === null) return 'sig-3'; // данных о пинге нет — показываем нейтральный средний уровень
+  if(ping < 150) return 'sig-4';
+  if(ping < 400) return 'sig-3';
+  if(ping < 800) return 'sig-2';
+  return 'sig-1';
+}
+
+function pingChipClass(ping){
+  if(ping === null) return '';
+  if(ping < 200) return 'ping-good';
+  if(ping < 500) return 'ping-mid';
+  return 'ping-bad';
+}
+
+
+/* ---- Отрисовка одного блока-источника со списком карточек -----------------
+   Строит DOM полностью через createElement/innerHTML, без внешних
+   библиотек — страница должна оставаться одним самодостаточным файлом.
+--------------------------------------------------------------------------- */
+
+function renderSourceBlock(source, proxies){
+  const wrap = document.createElement('div');
+  wrap.className = 'source-block src-' + source.key;
+
+  const head = document.createElement('div');
+  head.className = 'source-head';
+  head.innerHTML = `
+    <span class="source-name">${source.name}</span>
+    <span class="source-meta mono">${source.meta}</span>
+  `;
+  wrap.appendChild(head);
+
+  // Если источник не отдал ни одной валидной прокси — показываем
+  // заглушку вместо пустого места, чтобы было понятно, что это не баг вёрстки.
+  if(proxies.length === 0){
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Источник недоступен или пуст. Попробуй нажать ещё раз.';
+    wrap.appendChild(empty);
+    document.getElementById('results').appendChild(wrap);
+    return;
+  }
+
+  proxies.forEach((p) => {
+    const a = document.createElement('a');
+    a.className = 'proxy-card';
+    a.href = buildTgLink(p.server, p.port, p.secret);
+    a.rel = 'noopener'; // безопасность: не даём открытой странице влиять на текущую вкладку
+
+    const bars = `<div class="signal-bars ${signalClass(p.ping)}"><i></i><i></i><i></i><i></i></div>`;
+
+    const pingLabel = p.ping !== null
+      ? `<span class="chip ${pingChipClass(p.ping)}">⚡ ${Math.round(p.ping)} мс</span>`
+      : `<span class="chip">⚡ пинг н/д</span>`;
+
+    const tlsLabel = p.tls ? `<span class="chip tls">🛡 fake-TLS</span>` : '';
+    const regionLabel = p.region ? `<span class="chip">📍 ${p.region}</span>` : '';
+    const portLabel = `<span class="chip">port ${p.port}</span>`;
+
+    a.innerHTML = `
+      ${bars}
+      <div class="card-body">
+        <div class="card-host mono">${p.server}</div>
+        <div class="card-meta">
+          ${pingLabel}
+          ${tlsLabel}
+          ${regionLabel}
+          ${portLabel}
+        </div>
+      </div>
+      <div class="card-arrow">→</div>
+    `;
+    wrap.appendChild(a);
+  });
+
+  document.getElementById('results').appendChild(wrap);
+}
+
+
+/* ---- Загрузка и обработка одного источника --------------------------------
+   1. Пытаемся получить данные по основному URL.
+   2. Если у источника задан altUrl и основной запрос упал — пробуем
+      запасной адрес (нужно только для SOURCE_C, у остальных altUrl нет).
+   3. Парсим ответ соответствующим парсером (txt/json).
+   4. Сортируем по пингу: прокси с известным пингом идут по возрастанию
+      (лучшие — первыми), прокси без данных о пинге — в конец списка.
+   5. Возвращаем только первые 3 — это то, что просили показывать
+      пользователю как "3 самых актуальных и живых".
+--------------------------------------------------------------------------- */
+
+async function fetchOnce(url){
+  const res = await fetch(url, { cache:'no-store' }); // no-store — всегда свежие данные, без кэша браузера
+  if(!res.ok) throw new Error('HTTP ' + res.status);
+  return res;
+}
+
+async function fetchSource(source){
+  log(`подключаюсь к ${source.name}…`);
+
+  let res;
+  try{
+    res = await fetchOnce(source.url);
+  }catch(primaryErr){
+    if(source.altUrl){
+      log(`${source.name}: основной адрес не ответил, пробую запасной…`);
+      res = await fetchOnce(source.altUrl); // если и это упадёт — ошибка уйдёт наверх, в huntProxies()
+    }else{
+      throw primaryErr;
+    }
+  }
+
+  let proxies;
+  if(source.type === 'json'){
+    const data = await res.json();
+    proxies = parseJsonProxies(data);
+  }else{
+    const text = await res.text();
+    proxies = parseTxtProxies(text);
+  }
+
+  // Сортировка: null (нет данных о пинге) всегда уходит в конец,
+  // остальные — по возрастанию пинга (меньше = лучше).
+  proxies.sort((a,b) => {
+    if(a.ping === null && b.ping === null) return 0;
+    if(a.ping === null) return 1;
+    if(b.ping === null) return -1;
+    return a.ping - b.ping;
+  });
+
+  const top3 = proxies.slice(0, 3);
+  log(`${source.name}: найдено ${proxies.length}, беру топ-3`, 'ok');
+  return top3;
+}
+
+
+/* ---- Главный обработчик клика по кнопке "ЖМИ МЕНЯ" -------------------------
+   Promise.allSettled запускает запросы ко всем источникам ПАРАЛЛЕЛЬНО
+   и ждёт завершения каждого независимо от того, успешно оно или с ошибкой.
+   Это важно: если один источник "лёг", это не должно блокировать показ
+   результатов от остальных двух — пользователь всё равно получит
+   актуальные ссылки, просто из меньшего числа источников.
+--------------------------------------------------------------------------- */
+
+async function huntProxies(){
+  const btn = document.getElementById('fireBtn');
+  btn.disabled = true;
+  btn.classList.add('loading');
+  clearLog();
+  document.getElementById('results').innerHTML = '';
+
+  // Запускаем запросы ко всем источникам одновременно, а не по очереди —
+  // так суммарное время ожидания равно времени самого медленного
+  // источника, а не сумме всех трёх.
+  const settled = await Promise.allSettled(
+    ALL_SOURCES.map(source => fetchSource(source))
+  );
+
+  settled.forEach((result, i) => {
+    const source = ALL_SOURCES[i];
+    if(result.status === 'fulfilled'){
+      renderSourceBlock(source, result.value);
+    }else{
+      log(`${source.name}: не удалось получить данные (${result.reason})`, 'err');
+      renderSourceBlock(source, []); // покажет пользователю аккуратную заглушку вместо тишины
+    }
+  });
+
+  log('готово. тапай по карточкам — Telegram откроется сам.', 'ok');
+
+  btn.disabled = false;
+  btn.classList.remove('loading');
+}
+</script>
+
+</body>
+</html>
