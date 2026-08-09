@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>.9.08 10-07  — ежедневные MTProto прокси</title>
+<title>СИГНАЛ — ежедневные MTProto прокси</title>
 <style>
 
   /*
@@ -34,7 +34,7 @@
        Берём триколор российского флага в приглушённом, не "плакатном"
        исполнении — уместный намёк на тематику блока, но всё ещё в общей
        тёмной палитре страницы, без диссонанса с остальным дизайном. */
-    --ru-white:#e8ecf5;     /* акцент d — whoahaow/rjsxrd */
+    --ru-white:#e8ecf5;     /* акцент d — ALIILAPRO/MTProtoProxy */
     --ru-blue:#5b8dff;      /* акцент e — Chumbayoumba (RU-операторы) */
     --ru-red:#ff5a5a;       /* акцент f — Argh94/Proxy-List */
 
@@ -289,7 +289,7 @@
   .source-block.src-a .source-name{color:var(--signal);}   /* SoliSpirit — лайм */
   .source-block.src-b .source-name{color:var(--ice);}      /* kort0881 — циан */
   .source-block.src-c .source-name{color:var(--amber);}    /* shablin — янтарь */
-  .source-block.src-d .source-name{color:var(--ru-white);} /* whoahaow/rjsxrd — белый */
+  .source-block.src-d .source-name{color:var(--ru-white);} /* ALIILAPRO/MTProtoProxy — белый */
   .source-block.src-e .source-name{color:var(--ru-blue);}  /* Chumbayoumba — синий */
   .source-block.src-f .source-name{color:var(--ru-red);}   /* Argh94/Proxy-List — красный */
 
@@ -520,7 +520,7 @@
 <div class="foot-note">
   <b>Источники (общие):</b> SoliSpirit/mtproto (обновление раз в ~12 ч), kort0881/telegram-proxy-collector (обновление ежечасно, с измеренным пингом) и shablin/mtproto-proxy (обновление раз в ~2 ч, с измеренной задержкой и статусом "жив/мёртв").
   <br><br>
-  <b>Источники (РКН):</b> whoahaow/rjsxrd (обход блокировок и белых списков, автопроверка и сортировка по пингу), Chumbayoumba/free-telegram-proxy-russia-2026 (прокси, ориентированные на российских операторов — МТС, МегаФон, Tele2, Билайн, Yota) и Argh94/Proxy-List (мультипротокольный агрегатор с почасовым обновлением, отдельный файл под MTProto).
+  <b>Источники (РКН):</b> ALIILAPRO/MTProtoProxy (простой список, ежедневное обновление), Chumbayoumba/free-telegram-proxy-russia-2026 (прокси, ориентированные на российских операторов — МТС, МегаФон, Tele2, Билайн, Yota) и Argh94/Proxy-List (мультипротокольный агрегатор с почасовым обновлением, отдельный файл под MTProto).
   <br><br>
   Все шесть — открытые GitHub-репозитории с прокси, собранными из публичных списков. Мы ничего не храним и не проксируем сами — только показываем актуальные ссылки на момент клика.
 </div>
@@ -600,30 +600,37 @@ const SOURCE_C = {
    переиспользуются те же parseTxtProxies/parseJsonProxies — никакой новой
    логики парсинга писать не пришлось.
 
-   Пути ниже для D и F подтверждены напрямую просмотром страницы репозитория
-   на GitHub (README и дерево файлов), а не угаданы — это исправляет 404,
-   которые были при первой попытке:
-     - D: причиной 404 была форма пути к ветке — GitHub требует
-       .../refs/heads/main/... для raw-файлов в этом репозитории,
-       простого "main" в пути недостаточно.
-     - F: причиной 404 был регистр имени файла — файл в репозитории
-       называется MTProto.txt (с заглавной M), лежит в КОРНЕ репозитория,
-       а не mtproto.txt в подпапке, как было заявлено в README проекта.
-   altUrls всё равно оставлены как подстраховка на случай, если структура
-   репозитория снова изменится в будущем. */
+   Путь для F подтверждён напрямую просмотром дерева файлов репозитория
+   на GitHub, а не угадан — это исправило исходный 404: файл называется
+   MTProto.txt (с заглавной M) и лежит в КОРНЕ репозитория, а не
+   mtproto.txt в подпапке, как было заявлено в README проекта.
 
-// Источник D: агрегатор конфигов, среди прочего собирает и верифицирует
-// Telegram-прокси (MTProto + SOCKS5) с сортировкой по пингу, с явным
-// позиционированием "обход блокировок / обход белых списков".
+   Источник D (изначально whoahaow/rjsxrd) заменён на ALIILAPRO/MTProtoProxy
+   после того, как даже подтверждённый из README путь
+   githubmirror/tg-proxy/MTProto.txt продолжил отдавать 404 — вероятная
+   причина в том, что генерация папки tg-proxy/ управляется опциональным
+   флагом (--enable-tg-proxy/--disable-tg-proxy) в скрипте автора и на
+   момент проверки была выключена, то есть сам факт наличия файла не
+   гарантирован в принципе, а не просто "неверный путь". ALIILAPRO
+   надёжнее по трём независимым признакам:
+     1) путь mtproto.txt в корне репозитория виден прямо в дереве файлов
+        на GitHub — сам файл гарантированно существует;
+     2) у автора есть собственный GitHub Pages сайт, который сам делает
+        fetch('mtproto.txt') по этому же относительному пути — то есть
+        путь и формат уже проверены в бою сторонним, независимым кодом;
+     3) этот же URL входит в список из 27 upstream-источников, которые
+        использует kort0881 (наш SOURCE_B) для сбора своих прокси — то
+        есть источник уже неявно валидировался ещё одним независимым
+        скриптом-агрегатором. */
+
+// Источник D: простой, ежедневно обновляемый список MTProto-прокси.
+// Формат текстовый, аналогичный SOURCE_A — обрабатывается тем же
+// parseTxtProxies без каких-либо изменений в логике парсинга.
 const SOURCE_D = {
   key:'d',
-  name:'RJSXRD / TG-PROXY',
-  meta:'обход белых списков · сорт. по пингу',
-  url:'https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/tg-proxy/MTProto.txt',
-  altUrls:[
-    'https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/tg-proxy/all.txt',
-    'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/MTProto.txt'
-  ],
+  name:'ALIILAPRO / MTPROTOPROXY',
+  meta:'ежедневное обновление',
+  url:'https://raw.githubusercontent.com/ALIILAPRO/MTProtoProxy/main/mtproto.txt',
   type:'txt'
 };
 
