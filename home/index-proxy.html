@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>СИГНАЛ — ежедневные MTProto прокси</title>
+<title>СИГНАЛ 9.08 9-49 — ежедневные MTProto прокси</title>
 <style>
 
   /*
@@ -582,15 +582,15 @@ const SOURCE_B = {
    Автор хранит "сырые" данные в JSON, который подгружает его же GitHub Pages
    (shablin.github.io/mtproto-proxy). Точное имя файла в репозитории не
    зафиксировано публично, поэтому пробуем самый вероятный путь первым,
-   а если он не ответит — автоматически пробуем альтернативный (см. altUrl
-   и логику в fetchSource). Если оба пути окажутся недоступны, блок
-   источника просто покажет "источник недоступен" и не сломает страницу. */
+   а если он не ответит — автоматически пробуем альтернативные (см. altUrls
+   и логику в fetchSource). Если ни один путь не сработает, блок источника
+   просто покажет "источник недоступен" и не сломает страницу. */
 const SOURCE_C = {
   key:'c',
   name:'SHABLIN / MTPROTO-PROXY',
   meta:'обновление ~2ч · с задержкой',
   url:'https://raw.githubusercontent.com/shablin/mtproto-proxy/main/data/valid_proxy.json',
-  altUrl:'https://raw.githubusercontent.com/shablin/mtproto-proxy/master/data/valid_proxy.json',
+  altUrls:['https://raw.githubusercontent.com/shablin/mtproto-proxy/master/data/valid_proxy.json'],
   type:'json'
 };
 
@@ -598,7 +598,16 @@ const SOURCE_C = {
    блокировок (Роскомнадзор, ТСПУ, белые списки операторов). Формат
    ссылок и парсинг у них тот же (tg://proxy / JSON с proxies[]), поэтому
    переиспользуются те же parseTxtProxies/parseJsonProxies — никакой новой
-   логики парсинга писать не пришлось. */
+   логики парсинга писать не пришлось.
+
+   ВАЖНО про поле altUrls: у источников D и F точный путь к файлу не
+   подтверждён напрямую (репозитории генерируют файлы автоматически через
+   GitHub Actions, и точная структура папок может отличаться от заявленной
+   в README на момент чтения). Поэтому вместо одного "угаданного" пути
+   каждый такой источник получает СПИСОК из нескольких вероятных путей —
+   fetchSource перебирает их по очереди и берёт первый, который ответит
+   200 OK. Если ни один не сработает, источник корректно покажет
+   "источник недоступен", не ломая остальные блоки. */
 
 // Источник D: агрегатор конфигов, среди прочего собирает и верифицирует
 // Telegram-прокси (MTProto + SOCKS5) с сортировкой по пингу, с явным
@@ -608,6 +617,11 @@ const SOURCE_D = {
   name:'RJSXRD / TG-PROXY',
   meta:'обход белых списков · сорт. по пингу',
   url:'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/MTProto.txt',
+  altUrls:[
+    'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/all.txt',
+    'https://raw.githubusercontent.com/whoahaow/rjsxrd/master/githubmirror/tg-proxy/MTProto.txt',
+    'https://raw.githubusercontent.com/whoahaow/rjsxrd/master/githubmirror/tg-proxy/all.txt'
+  ],
   type:'txt'
 };
 
@@ -626,11 +640,17 @@ const SOURCE_E = {
 
 // Источник F: мультипротокольный агрегатор (HTTP/SOCKS/MTProto/VPN-конфиги
 // и т.д.), обновляется каждый час; нас интересует только его файл mtproto.txt.
+// Как и у D, точный путь не подтверждён на 100% — заложены альтернативы.
 const SOURCE_F = {
   key:'f',
   name:'ARGH94 / PROXY-LIST',
   meta:'мультипротокольный · обновление ~1ч',
   url:'https://raw.githubusercontent.com/Argh94/Proxy-List/main/mtproto.txt',
+  altUrls:[
+    'https://raw.githubusercontent.com/Argh94/Proxy-List/main/output/mtproto.txt',
+    'https://raw.githubusercontent.com/Argh94/Proxy-List/main/configs/mtproto.txt',
+    'https://raw.githubusercontent.com/Argh94/Proxy-List/master/mtproto.txt'
+  ],
   type:'txt'
 };
 
@@ -696,6 +716,13 @@ function parseTxtProxies(text){
         out.push({
           server, port, secret,
           ping:null,
+          // Текстовые источники (A, D, F) не публикуют ни пинг, ни
+          // probe_resistant, ни domain — только сам факт "эта прокси
+          // рабочая". Явно ставим null, чтобы объект имел ту же форму,
+          // что и у JSON-источников, и renderSourceBlock мог одинаково
+          // проверять оба типа без дополнительных условий.
+          probeResistant:null,
+          domain:null,
           // Секрет, начинающийся с "ee", означает режим Fake-TLS —
           // прокси маскируется под обычный HTTPS-трафик и хуже
           // поддаётся блокировке по DPI.
@@ -716,11 +743,21 @@ function parseTxtProxies(text){
    с полем proxies/results, поэтому сперва нормализуем это в единый список.
 
    Поля у источников называются немного по-разному:
-     - kort0881 использует host / ping
+     - kort0881 использует host / ping / domain / probe_resistant
      - shablin  использует server / latency
    Поэтому берём значение из первого поля, которое реально присутствует
    (p.host || p.server, p.ping ?? p.latency и т.д.) — так один и тот же
    парсер обслуживает оба источника без дублирования кода.
+
+   probe_resistant и domain — особенность именно kort0881: скрипт-сборщик
+   реально проверяет прокси активным HTTPS-запросом через него (Probe
+   Resistance Test) и смотрит, под какой легитимный сайт замаскирован
+   секрет (Yandex, VK, Gosuslugi и т.д.). Это более содержательная
+   характеристика для темы "обход блокировок", чем голый пинг — она прямо
+   отвечает на вопрос "выдержит ли эта прокси активное DPI-зондирование",
+   а не просто "быстро ли отвечает сервер". У источников без этих полей
+   probeResistant будет null, а domain — null, и в карточке для них просто
+   не появится соответствующий чип (см. renderSourceBlock).
 --------------------------------------------------------------------------- */
 
 function parseJsonProxies(data){
@@ -747,7 +784,11 @@ function parseJsonProxies(data){
       server, port, secret,
       ping: rawLatency,
       region: p.region || null,
-      tls: (p.method === 'faketls') || (typeof secret === 'string' && secret.toLowerCase().startsWith('ee'))
+      tls: (p.method === 'faketls') || (typeof secret === 'string' && secret.toLowerCase().startsWith('ee')),
+      // true/false, если источник это проверял; null, если поля просто нет
+      probeResistant: (typeof p.probe_resistant === 'boolean') ? p.probe_resistant : null,
+      // под какой легитимный сервис замаскирован секрет (yandex, vk, gosuslugi и т.п.)
+      domain: p.domain || null
     });
   }
   return out;
@@ -814,9 +855,30 @@ function renderSourceBlock(source, proxies){
 
     const bars = `<div class="signal-bars ${signalClass(p.ping)}"><i></i><i></i><i></i><i></i></div>`;
 
-    const pingLabel = p.ping !== null
-      ? `<span class="chip ${pingChipClass(p.ping)}">⚡ ${Math.round(p.ping)} мс</span>`
-      : `<span class="chip">⚡ пинг н/д</span>`;
+    // Раньше здесь всегда пытались показать пинг, а при его отсутствии
+    // выводили бесполезное "пинг н/д" (или даже "0 мс", если источник
+    // прислал 0 как заглушку). Теперь вместо этого показываем то, что
+    // источник реально измерил:
+    //   1) если есть пинг — показываем его как раньше;
+    //   2) иначе, если источник проверял устойчивость к DPI-зондированию
+    //      (probe_resistant, есть только у kort0881) — показываем её:
+    //      это содержательнее пинга для темы обхода блокировок;
+    //   3) иначе, если известно, под какой сервис замаскирован секрет
+    //      (domain) — показываем маскировку;
+    //   4) и только если вообще ничего из этого нет — нейтральный чип
+    //      "TG proxy" вместо бессмысленного "н/д".
+    let metricLabel;
+    if(p.ping !== null && p.ping > 0){
+      metricLabel = `<span class="chip ${pingChipClass(p.ping)}">⚡ ${Math.round(p.ping)} мс</span>`;
+    }else if(p.probeResistant === true){
+      metricLabel = `<span class="chip ping-good">🛡 DPI-устойчив</span>`;
+    }else if(p.probeResistant === false){
+      metricLabel = `<span class="chip ping-mid">🛡 не проверен на DPI</span>`;
+    }else if(p.domain){
+      metricLabel = `<span class="chip tls">🎭 маска: ${p.domain}</span>`;
+    }else{
+      metricLabel = `<span class="chip">📡 TG proxy</span>`;
+    }
 
     const tlsLabel = p.tls ? `<span class="chip tls">🛡 fake-TLS</span>` : '';
     const regionLabel = p.region ? `<span class="chip">📍 ${p.region}</span>` : '';
@@ -827,7 +889,7 @@ function renderSourceBlock(source, proxies){
       <div class="card-body">
         <div class="card-host mono">${p.server}</div>
         <div class="card-meta">
-          ${pingLabel}
+          ${metricLabel}
           ${tlsLabel}
           ${regionLabel}
           ${portLabel}
@@ -868,13 +930,20 @@ function renderRknDivider(){
 
 
 /* ---- Загрузка и обработка одного источника --------------------------------
-   1. Пытаемся получить данные по основному URL.
-   2. Если у источника задан altUrl и основной запрос упал — пробуем
-      запасной адрес (нужно только для SOURCE_C, у остальных altUrl нет).
-   3. Парсим ответ соответствующим парсером (txt/json).
-   4. Сортируем по пингу: прокси с известным пингом идут по возрастанию
+   1. Пытаемся получить данные по основному URL (source.url).
+   2. Если основной запрос упал и у источника задан altUrls (список запасных
+      адресов) — пробуем их по очереди, пока один не ответит 200 OK.
+      Это нужно там, где точный путь к файлу не гарантирован заранее
+      (репозиторий генерирует файлы автоматически, и структура папок
+      может отличаться от заявленной в README) — вместо одной ставки на
+      единственный URL пробуем несколько вероятных вариантов подряд.
+   3. Если и все altUrls не сработали — ошибка уходит наверх в huntProxies(),
+      которая покажет аккуратное сообщение по этому конкретному источнику,
+      не затрагивая остальные пять.
+   4. Парсим ответ соответствующим парсером (txt/json).
+   5. Сортируем по пингу: прокси с известным пингом идут по возрастанию
       (лучшие — первыми), прокси без данных о пинге — в конец списка.
-   5. Возвращаем только первые 3 — это то, что просили показывать
+   6. Возвращаем только первые 3 — это то, что просили показывать
       пользователю как "3 самых актуальных и живых".
 --------------------------------------------------------------------------- */
 
@@ -891,12 +960,22 @@ async function fetchSource(source){
   try{
     res = await fetchOnce(source.url);
   }catch(primaryErr){
-    if(source.altUrl){
-      log(`${source.name}: основной адрес не ответил, пробую запасной…`);
-      res = await fetchOnce(source.altUrl); // если и это упадёт — ошибка уйдёт наверх, в huntProxies()
-    }else{
-      throw primaryErr;
+    const candidates = source.altUrls || [];
+    let lastErr = primaryErr;
+    let succeeded = false;
+
+    for(const altUrl of candidates){
+      try{
+        log(`${source.name}: адрес не ответил, пробую другой путь…`);
+        res = await fetchOnce(altUrl);
+        succeeded = true;
+        break; // нашли рабочий адрес — дальше перебирать не нужно
+      }catch(altErr){
+        lastErr = altErr; // запоминаем последнюю ошибку на случай, если и все altUrls не сработают
+      }
     }
+
+    if(!succeeded) throw lastErr;
   }
 
   let proxies;
