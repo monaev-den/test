@@ -30,6 +30,14 @@
     --ice:#4fd9ff;          /* циан — акцент второго источника (kort0881) */
     --amber:#ffb020;        /* янтарный — акцент третьего источника (shablin) + средний пинг */
 
+    /* ===== Доп. акцентные цвета для блока "РКН" (источники d/e/f) =====
+       Берём триколор российского флага в приглушённом, не "плакатном"
+       исполнении — уместный намёк на тематику блока, но всё ещё в общей
+       тёмной палитре страницы, без диссонанса с остальным дизайном. */
+    --ru-white:#e8ecf5;     /* акцент d — whoahaow/rjsxrd */
+    --ru-blue:#5b8dff;      /* акцент e — Chumbayoumba (RU-операторы) */
+    --ru-red:#ff5a5a;       /* акцент f — Argh94/Proxy-List */
+
     /* НОВЫЙ, МЕНЕЕ АГРЕССИВНЫЙ ЦВЕТ КНОПКИ:
        вместо кислотно-розовой мадженты берём приглушённый бирюзово-зелёный (teal).
        Он остаётся акцентным на тёмном фоне, но не "кричит" и не ассоциируется
@@ -281,6 +289,9 @@
   .source-block.src-a .source-name{color:var(--signal);}   /* SoliSpirit — лайм */
   .source-block.src-b .source-name{color:var(--ice);}      /* kort0881 — циан */
   .source-block.src-c .source-name{color:var(--amber);}    /* shablin — янтарь */
+  .source-block.src-d .source-name{color:var(--ru-white);} /* whoahaow/rjsxrd — белый */
+  .source-block.src-e .source-name{color:var(--ru-blue);}  /* Chumbayoumba — синий */
+  .source-block.src-f .source-name{color:var(--ru-red);}   /* Argh94/Proxy-List — красный */
 
   .source-meta{
     font-family:'JetBrains Mono', monospace;
@@ -316,6 +327,9 @@
   .src-a .proxy-card:active{border-color:var(--signal-dim);}
   .src-b .proxy-card:active{border-color:var(--ice);}
   .src-c .proxy-card:active{border-color:var(--amber);}
+  .src-d .proxy-card:active{border-color:var(--ru-white);}
+  .src-e .proxy-card:active{border-color:var(--ru-blue);}
+  .src-f .proxy-card:active{border-color:var(--ru-red);}
 
   /* ===== ИНДИКАТОР УРОВНЯ СИГНАЛА (4 столбика, как индикатор связи на телефоне) =====
      Это "фирменный" элемент дизайна: вместо голой цифры пинга человек
@@ -400,6 +414,9 @@
   .src-a .card-arrow{color:var(--signal);}
   .src-b .card-arrow{color:var(--ice);}
   .src-c .card-arrow{color:var(--amber);}
+  .src-d .card-arrow{color:var(--ru-white);}
+  .src-e .card-arrow{color:var(--ru-blue);}
+  .src-f .card-arrow{color:var(--ru-red);}
 
   /* ===== СОСТОЯНИЕ "ИСТОЧНИК НЕ ОТВЕТИЛ" ===== */
   .empty-state{
@@ -426,6 +443,45 @@
 
   .foot-note b{color:var(--text-dim);}
 
+  /* ===== СЕКЦИОННЫЙ РАЗДЕЛИТЕЛЬ "РКН" =====
+     Визуально отделяет блок RU-специфичных источников от основных трёх.
+     Линия с текстом по центру — приём из технических дашбордов
+     ("--- SECTION ---"), подчёркивает, что дальше идёт отдельная
+     категория данных, а не продолжение того же списка. */
+  .section-divider{
+    max-width:640px;
+    margin:44px auto 8px;
+    padding:0 20px;
+    display:flex;
+    align-items:center;
+    gap:14px;
+  }
+
+  .section-divider .line{
+    flex:1;
+    height:1px;
+    background:linear-gradient(to right, transparent, var(--line) 20%, var(--line) 80%, transparent);
+  }
+
+  .section-divider .rkn-label{
+    font-family:'JetBrains Mono', monospace;
+    font-size:13px;
+    font-weight:800;
+    letter-spacing:0.18em;
+    color:var(--ru-white);
+    text-shadow:0 0 18px rgba(232,236,245,0.25);
+    white-space:nowrap;
+  }
+
+  .section-sub{
+    max-width:640px;
+    margin:0 auto 4px;
+    padding:0 20px;
+    font-size:13px;
+    color:var(--text-dim);
+    line-height:1.5;
+  }
+
   @media (min-width:600px){
     h1{font-size:42px;}
   }
@@ -436,7 +492,7 @@
 <header>
   <div class="eyebrow"><span class="dot"></span><span>MTPROTO · ЕЖЕДНЕВНЫЙ ПЕРЕХВАТ</span></div>
   <h1>Поймай <span>сигнал</span>,<br>не жди блокировки.</h1>
-  <p class="sub">Один тап — и три открытых источника отдают тебе <b>девять живых прокси</b> прямо сейчас. Тапай по карточке — Telegram сам предложит добавить прокси в список.</p>
+  <p class="sub">Один тап — и шесть открытых источников отдают тебе <b>до восемнадцати живых прокси</b> прямо сейчас: три общих и три специально под обход блокировок РКН. Тапай по карточке — Telegram сам предложит добавить прокси в список.</p>
 </header>
 
 <div class="fire-wrap">
@@ -454,11 +510,19 @@
      пользователь видел, что страница не "зависла", а реально работает. -->
 <div id="statusLog"></div>
 
-<!-- Сюда JS вставляет блоки по каждому источнику после получения данных -->
+<!-- Сюда JS вставляет блоки по каждому источнику после получения данных.
+     Внутри results, по порядку, окажутся сначала 3 общих источника (a/b/c),
+     затем разделитель "РКН" (вставляется функцией renderRknDivider) и
+     3 RU-специализированных источника (d/e/f) — всё в одном контейнере,
+     чтобы порядок появления при загрузке был предсказуемым и плавным. -->
 <div id="results"></div>
 
 <div class="foot-note">
-  <b>Источники:</b> SoliSpirit/mtproto (обновление раз в ~12 ч), kort0881/telegram-proxy-collector (обновление ежечасно, с измеренным пингом) и shablin/mtproto-proxy (обновление раз в ~2 ч, с измеренной задержкой и статусом "жив/мёртв"). Все три — открытые GitHub-репозитории с прокси, собранными из публичных списков. Мы ничего не храним и не проксируем сами — только показываем актуальные ссылки на момент клика.
+  <b>Источники (общие):</b> SoliSpirit/mtproto (обновление раз в ~12 ч), kort0881/telegram-proxy-collector (обновление ежечасно, с измеренным пингом) и shablin/mtproto-proxy (обновление раз в ~2 ч, с измеренной задержкой и статусом "жив/мёртв").
+  <br><br>
+  <b>Источники (РКН):</b> whoahaow/rjsxrd (обход блокировок и белых списков, автопроверка и сортировка по пингу), Chumbayoumba/free-telegram-proxy-russia-2026 (прокси, ориентированные на российских операторов — МТС, МегаФон, Tele2, Билайн, Yota) и Argh94/Proxy-List (мультипротокольный агрегатор с почасовым обновлением, отдельный файл под MTProto).
+  <br><br>
+  Все шесть — открытые GitHub-репозитории с прокси, собранными из публичных списков. Мы ничего не храним и не проксируем сами — только показываем актуальные ссылки на момент клика.
 </div>
 
 <script>
@@ -530,7 +594,49 @@ const SOURCE_C = {
   type:'json'
 };
 
+/* ---- Блок "РКН": источники, специализирующиеся на обходе российских
+   блокировок (Роскомнадзор, ТСПУ, белые списки операторов). Формат
+   ссылок и парсинг у них тот же (tg://proxy / JSON с proxies[]), поэтому
+   переиспользуются те же parseTxtProxies/parseJsonProxies — никакой новой
+   логики парсинга писать не пришлось. */
+
+// Источник D: агрегатор конфигов, среди прочего собирает и верифицирует
+// Telegram-прокси (MTProto + SOCKS5) с сортировкой по пингу, с явным
+// позиционированием "обход блокировок / обход белых списков".
+const SOURCE_D = {
+  key:'d',
+  name:'RJSXRD / TG-PROXY',
+  meta:'обход белых списков · сорт. по пингу',
+  url:'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/MTProto.txt',
+  type:'txt'
+};
+
+// Источник E: небольшой, но точно нацеленный на РФ репозиторий — прокси
+// заявлены как рабочие на конкретных российских операторах (МТС, МегаФон,
+// Tele2, Билайн, Yota). На момент проверки в файле лежит всего 1 запись,
+// поэтому topN здесь может быть меньше 3 — это ожидаемо и не является
+// ошибкой парсинга (см. проверку proxies.length в renderSourceBlock).
+const SOURCE_E = {
+  key:'e',
+  name:'CHUMBAYOUMBA / RU-2026',
+  meta:'под RU-операторов · МТС/МегаФон/Tele2',
+  url:'https://raw.githubusercontent.com/Chumbayoumba/free-telegram-proxy-russia-2026/main/mtproto.json',
+  type:'json'
+};
+
+// Источник F: мультипротокольный агрегатор (HTTP/SOCKS/MTProto/VPN-конфиги
+// и т.д.), обновляется каждый час; нас интересует только его файл mtproto.txt.
+const SOURCE_F = {
+  key:'f',
+  name:'ARGH94 / PROXY-LIST',
+  meta:'мультипротокольный · обновление ~1ч',
+  url:'https://raw.githubusercontent.com/Argh94/Proxy-List/main/mtproto.txt',
+  type:'txt'
+};
+
+// Первые три — общий блок, вторые три — блок "РКН" (см. renderRknDivider).
 const ALL_SOURCES = [SOURCE_A, SOURCE_B, SOURCE_C];
+const RKN_SOURCES = [SOURCE_D, SOURCE_E, SOURCE_F];
 
 
 /* ---- Утилиты для журнала статуса -----------------------------------------
@@ -736,6 +842,31 @@ function renderSourceBlock(source, proxies){
 }
 
 
+/* ---- Разделитель между общим блоком источников и блоком "РКН" -------------
+   Вставляется один раз в контейнер #results между двумя группами
+   источников. Текстовая подпись поясняет, чем эта группа отличается
+   от первых трёх — не дублирует общий текст в подвале, а даёт
+   контекст прямо в месте, где человек листает список. */
+
+function renderRknDivider(){
+  const results = document.getElementById('results');
+
+  const divider = document.createElement('div');
+  divider.className = 'section-divider';
+  divider.innerHTML = `
+    <span class="line"></span>
+    <span class="rkn-label">РКН</span>
+    <span class="line"></span>
+  `;
+  results.appendChild(divider);
+
+  const sub = document.createElement('div');
+  sub.className = 'section-sub';
+  sub.textContent = 'Ниже — источники, специально заточенные под обход блокировок Роскомнадзора и белых списков российских операторов.';
+  results.appendChild(sub);
+}
+
+
 /* ---- Загрузка и обработка одного источника --------------------------------
    1. Пытаемся получить данные по основному URL.
    2. Если у источника задан altUrl и основной запрос упал — пробуем
@@ -807,20 +938,40 @@ async function huntProxies(){
   clearLog();
   document.getElementById('results').innerHTML = '';
 
-  // Запускаем запросы ко всем источникам одновременно, а не по очереди —
-  // так суммарное время ожидания равно времени самого медленного
-  // источника, а не сумме всех трёх.
+  // Все шесть источников (3 общих + 3 "РКН") запрашиваются одновременно,
+  // а не по очереди и не блоками — так суммарное время ожидания равно
+  // времени самого медленного из шести запросов, а не их сумме.
+  // Разделение на ALL_SOURCES/RKN_SOURCES нужно только для порядка
+  // отрисовки, на сетевой запрос оно не влияет.
+  const combinedSources = ALL_SOURCES.concat(RKN_SOURCES);
+
   const settled = await Promise.allSettled(
-    ALL_SOURCES.map(source => fetchSource(source))
+    combinedSources.map(source => fetchSource(source))
   );
 
-  settled.forEach((result, i) => {
-    const source = ALL_SOURCES[i];
+  // Сначала отрисовываем три общих источника (индексы 0..2) —
+  // логика идентична предыдущей версии, изменений здесь нет.
+  ALL_SOURCES.forEach((source, i) => {
+    const result = settled[i];
     if(result.status === 'fulfilled'){
       renderSourceBlock(source, result.value);
     }else{
       log(`${source.name}: не удалось получить данные (${result.reason})`, 'err');
-      renderSourceBlock(source, []); // покажет пользователю аккуратную заглушку вместо тишины
+      renderSourceBlock(source, []);
+    }
+  });
+
+  // Затем — разделитель "РКН", и следом три RU-специализированных
+  // источника (индексы 3..5 в объединённом массиве).
+  renderRknDivider();
+
+  RKN_SOURCES.forEach((source, i) => {
+    const result = settled[ALL_SOURCES.length + i];
+    if(result.status === 'fulfilled'){
+      renderSourceBlock(source, result.value);
+    }else{
+      log(`${source.name}: не удалось получить данные (${result.reason})`, 'err');
+      renderSourceBlock(source, []);
     }
   });
 
