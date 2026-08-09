@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<title>СИГНАЛ 9.08 9-49 — ежедневные MTProto прокси</title>
+<title>СИГНАЛ 9.08 10-00 — ежедневные MTProto прокси</title>
 <style>
 
   /*
@@ -600,14 +600,17 @@ const SOURCE_C = {
    переиспользуются те же parseTxtProxies/parseJsonProxies — никакой новой
    логики парсинга писать не пришлось.
 
-   ВАЖНО про поле altUrls: у источников D и F точный путь к файлу не
-   подтверждён напрямую (репозитории генерируют файлы автоматически через
-   GitHub Actions, и точная структура папок может отличаться от заявленной
-   в README на момент чтения). Поэтому вместо одного "угаданного" пути
-   каждый такой источник получает СПИСОК из нескольких вероятных путей —
-   fetchSource перебирает их по очереди и берёт первый, который ответит
-   200 OK. Если ни один не сработает, источник корректно покажет
-   "источник недоступен", не ломая остальные блоки. */
+   Пути ниже для D и F подтверждены напрямую просмотром страницы репозитория
+   на GitHub (README и дерево файлов), а не угаданы — это исправляет 404,
+   которые были при первой попытке:
+     - D: причиной 404 была форма пути к ветке — GitHub требует
+       .../refs/heads/main/... для raw-файлов в этом репозитории,
+       простого "main" в пути недостаточно.
+     - F: причиной 404 был регистр имени файла — файл в репозитории
+       называется MTProto.txt (с заглавной M), лежит в КОРНЕ репозитория,
+       а не mtproto.txt в подпапке, как было заявлено в README проекта.
+   altUrls всё равно оставлены как подстраховка на случай, если структура
+   репозитория снова изменится в будущем. */
 
 // Источник D: агрегатор конфигов, среди прочего собирает и верифицирует
 // Telegram-прокси (MTProto + SOCKS5) с сортировкой по пингу, с явным
@@ -616,11 +619,10 @@ const SOURCE_D = {
   key:'d',
   name:'RJSXRD / TG-PROXY',
   meta:'обход белых списков · сорт. по пингу',
-  url:'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/MTProto.txt',
+  url:'https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/tg-proxy/MTProto.txt',
   altUrls:[
-    'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/all.txt',
-    'https://raw.githubusercontent.com/whoahaow/rjsxrd/master/githubmirror/tg-proxy/MTProto.txt',
-    'https://raw.githubusercontent.com/whoahaow/rjsxrd/master/githubmirror/tg-proxy/all.txt'
+    'https://raw.githubusercontent.com/whoahaow/rjsxrd/refs/heads/main/githubmirror/tg-proxy/all.txt',
+    'https://raw.githubusercontent.com/whoahaow/rjsxrd/main/githubmirror/tg-proxy/MTProto.txt'
   ],
   type:'txt'
 };
@@ -639,17 +641,16 @@ const SOURCE_E = {
 };
 
 // Источник F: мультипротокольный агрегатор (HTTP/SOCKS/MTProto/VPN-конфиги
-// и т.д.), обновляется каждый час; нас интересует только его файл mtproto.txt.
-// Как и у D, точный путь не подтверждён на 100% — заложены альтернативы.
+// и т.д.), обновляется каждый час. Файл MTProto.txt лежит прямо в корне
+// репозитория (не в подпапке) — так подтверждено прямым просмотром дерева
+// файлов на GitHub.
 const SOURCE_F = {
   key:'f',
   name:'ARGH94 / PROXY-LIST',
   meta:'мультипротокольный · обновление ~1ч',
-  url:'https://raw.githubusercontent.com/Argh94/Proxy-List/main/mtproto.txt',
+  url:'https://raw.githubusercontent.com/Argh94/Proxy-List/main/MTProto.txt',
   altUrls:[
-    'https://raw.githubusercontent.com/Argh94/Proxy-List/main/output/mtproto.txt',
-    'https://raw.githubusercontent.com/Argh94/Proxy-List/main/configs/mtproto.txt',
-    'https://raw.githubusercontent.com/Argh94/Proxy-List/master/mtproto.txt'
+    'https://raw.githubusercontent.com/Argh94/Proxy-List/main/mtproto.txt'
   ],
   type:'txt'
 };
