@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Дэшборд здоровья · Apple Health</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="shell">
+
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M12 21s-7.5-4.6-10.2-9.3C-0.1 7.9 2 4 5.8 4c2 0 3.4 1 4.2 2.3C10.8 5 12.2 4 14.2 4 18 4 20.1 7.9 22.2 11.7 19.5 16.4 12 21 12 21Z" stroke="#04231b" stroke-width="1.6" fill="#04231b" fill-opacity=".18"/></svg>
+      </div>
+      <div class="brand-text">
+        <div class="t1">Здоровье в цифрах</div>
+        <div class="t2">Apple Health export</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a href="#sec-activity" style="--dot:var(--activity)"><span class="dot"></span>Активность</a>
+      <a href="#sec-heart" style="--dot:var(--heart)"><span class="dot"></span>Сердце</a>
+      <a href="#sec-body" style="--dot:var(--body)"><span class="dot"></span>Тело</a>
+      <a href="#sec-sleep" style="--dot:var(--sleep)"><span class="dot"></span>Сон</a>
+      <a href="#sec-resp" style="--dot:var(--resp)"><span class="dot"></span>Дыхание и кислород</a>
+      <a href="#sec-mobility" style="--dot:var(--mobility)"><span class="dot"></span>Мобильность</a>
+      <a href="#sec-nutrition" style="--dot:var(--nutrition)"><span class="dot"></span>Питание</a>
+      <a href="#sec-audio" style="--dot:var(--audio)"><span class="dot"></span>Слух</a>
+      <a href="#sec-workouts" style="--dot:var(--workouts)"><span class="dot"></span>Тренировки</a>
+    </nav>
+
+    <div class="sidebar-foot">
+      Сформировано локально в браузере.<br>Данные не покидают это устройство.
+      <div style="margin-top:8px">Отчёт от <span id="generated-date"></span></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="topbar">
+      <h1>Обзор здоровья</h1>
+      <div class="period-pills">
+        <button class="pill" data-period="30d">30 дней</button>
+        <button class="pill" data-period="90d">90 дней</button>
+        <button class="pill" data-period="180d">6 мес.</button>
+        <button class="pill" data-period="1y">Год</button>
+        <button class="pill" data-period="2y">2 года</button>
+        <button class="pill" data-period="5y">5 лет</button>
+        <button class="pill active" data-period="all">Всё время</button>
+        <div class="range-custom">
+          <input type="date" id="date-start">
+          <span>—</span>
+          <input type="date" id="date-end">
+        </div>
+      </div>
+    </div>
+
+    <div class="content">
+
+      <div class="hero">
+        <h2 id="hero-title">Ваше здоровье в цифрах</h2>
+        <p class="sub" id="hero-sub"></p>
+        <div class="meta">
+          <div id="hero-period"></div>
+          <div id="hero-days"></div>
+          <div id="hero-span"></div>
+        </div>
+      </div>
+
+      <div class="kpi-grid" id="kpi-grid"></div>
+
+      <!-- ================= ACTIVITY ================= -->
+      <section class="section" id="sec-activity" style="--accent:var(--activity)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Активность</h3>
+          <div class="section-note">Шаги, дистанция, калории, минуты упражнений и заполнение колец Apple Watch</div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head">
+            <h4>Шаги в день</h4>
+            <div class="ph-sub">с линией скользящего среднего за 7 дней</div>
+            <div class="legend">
+              <div class="lg"><span class="sw line" style="background:var(--activity)"></span>Шаги</div>
+              <div class="lg"><span class="sw line" style="background:#fff"></span>Ср. 7 дней</div>
+            </div>
+          </div>
+          <div class="chart-wrap" id="chart-steps"></div>
+        </div>
+
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Календарь активности</h4><div class="ph-sub">интенсивность по дням, как в GitHub</div></div>
+            <div class="chart-wrap" id="chart-steps-heatmap"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Шаги по дням недели</h4><div class="ph-sub">среднее за период</div></div>
+            <div class="chart-wrap" id="chart-steps-weekday"></div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Активные калории</h4></div>
+            <div class="chart-wrap" id="chart-energy"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Минуты упражнений</h4></div>
+            <div class="chart-wrap" id="chart-exercise"></div>
+          </div>
+        </div>
+
+        <div class="grid2">
+          <div class="panel">
+            <div class="panel-head"><h4>Кольца активности</h4><div class="ph-sub">доля дней с выполненной целью за период</div></div>
+            <div class="ring-row" style="margin-top:6px">
+              <div>
+                <div class="ring" id="ring-move"></div>
+                <div class="ring-label">Заполнение</div>
+              </div>
+              <div>
+                <div class="ring" id="ring-exercise"></div>
+                <div class="ring-label">Упражнения</div>
+              </div>
+              <div>
+                <div class="ring" id="ring-stand"></div>
+                <div class="ring-label">Стойка</div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Заполнение колец по месяцам</h4></div>
+            <div class="chart-wrap" id="chart-rings-trend"></div>
+          </div>
+        </div>
+
+        <div class="insight" id="activity-insight"></div>
+      </section>
+
+      <!-- ================= HEART ================= -->
+      <section class="section" id="sec-heart" style="--accent:var(--heart)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Сердце</h3>
+          <div class="section-note">Пульс покоя, вариабельность сердечного ритма, VO2 Max, восстановление</div>
+        </div>
+
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head">
+            <h4>Пульс покоя и пульс при ходьбе</h4>
+            <div class="legend">
+              <div class="lg"><span class="sw line" style="background:var(--heart)"></span>Покой</div>
+              <div class="lg"><span class="sw line" style="background:var(--mobility)"></span>При ходьбе</div>
+            </div>
+          </div>
+          <div class="chart-wrap" id="chart-rhr"></div>
+        </div>
+
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Средний пульс за день</h4></div>
+            <div class="chart-wrap" id="chart-hr-avg"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Вариабельность сердечного ритма (SDNN)</h4></div>
+            <div class="chart-wrap" id="chart-hrv"></div>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>VO2 Max</h4><div class="ph-sub">цветные зоны — категории физической формы</div></div>
+            <div class="chart-wrap" id="chart-vo2"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Восстановление пульса за 1 минуту</h4><div class="ph-sub">после нагрузки</div></div>
+            <div class="chart-wrap" id="chart-hrr"></div>
+          </div>
+        </div>
+
+        <div class="insight" id="heart-insight"></div>
+      </section>
+
+      <!-- ================= BODY ================= -->
+      <section class="section" id="sec-body" style="--accent:var(--body)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Тело</h3>
+          <div class="section-note">Вес и индекс массы тела</div>
+        </div>
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Вес, кг</h4></div>
+            <div class="chart-wrap" id="chart-weight"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Индекс массы тела</h4><div class="ph-sub">зелёная зона — норма, жёлтая — избыточная масса</div></div>
+            <div class="chart-wrap" id="chart-bmi"></div>
+          </div>
+        </div>
+        <div class="insight" id="body-insight"></div>
+      </section>
+
+      <!-- ================= SLEEP ================= -->
+      <section class="section" id="sec-sleep" style="--accent:var(--sleep)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Сон</h3>
+          <div class="section-note">Продолжительность сна и структура стадий</div>
+        </div>
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Продолжительность сна</h4><div class="ph-sub">фиолетовая зона — рекомендация 7–9 ч</div></div>
+            <div class="chart-wrap" id="chart-sleep"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Структура сна</h4><div class="ph-sub">по ночам с детальными стадиями</div></div>
+            <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+              <div class="chart-wrap" id="chart-sleep-stages" style="width:auto"></div>
+              <div id="sleep-stages-legend" style="display:flex;flex-direction:column;gap:6px"></div>
+            </div>
+          </div>
+        </div>
+        <div class="insight" id="sleep-insight"></div>
+      </section>
+
+      <!-- ================= RESPIRATORY ================= -->
+      <section class="section" id="sec-resp" style="--accent:var(--resp)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Дыхание и кислород</h3>
+          <div class="section-note">Сатурация крови кислородом, частота дыхания, артериальное давление</div>
+        </div>
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>SpO2 (сатурация)</h4><div class="ph-sub">голубая зона — норма 95–100%</div></div>
+            <div class="chart-wrap" id="chart-spo2"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Частота дыхания</h4><div class="ph-sub">голубая зона — типичный диапазон покоя</div></div>
+            <div class="chart-wrap" id="chart-resp"></div>
+          </div>
+        </div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head">
+            <h4>Артериальное давление</h4>
+            <div class="legend">
+              <div class="lg"><span class="sw line" style="background:var(--heart)"></span>Систолическое</div>
+              <div class="lg"><span class="sw line" style="background:var(--resp)"></span>Диастолическое</div>
+            </div>
+          </div>
+          <div class="chart-wrap" id="chart-bp"></div>
+        </div>
+        <div class="insight" id="resp-insight"></div>
+      </section>
+
+      <!-- ================= MOBILITY ================= -->
+      <section class="section" id="sec-mobility" style="--accent:var(--mobility)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Мобильность и походка</h3>
+          <div class="section-note">Метрики устойчивости и риска падений, измеряемые iPhone в кармане</div>
+        </div>
+        <div class="grid-auto" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Скорость ходьбы, км/ч</h4></div>
+            <div class="chart-wrap" id="chart-walkspeed"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Длина шага, см</h4></div>
+            <div class="chart-wrap" id="chart-steplength"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Двойная опора, %</h4></div>
+            <div class="chart-wrap" id="chart-doublesupport"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Асимметрия походки, %</h4></div>
+            <div class="chart-wrap" id="chart-asymmetry"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Устойчивость ходьбы, %</h4></div>
+            <div class="chart-wrap" id="chart-steadiness"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Время на дневном свете, мин</h4></div>
+            <div class="chart-wrap" id="chart-daylight"></div>
+          </div>
+        </div>
+        <div class="insight" id="mobility-insight"></div>
+      </section>
+
+      <!-- ================= NUTRITION ================= -->
+      <section class="section" id="sec-nutrition" style="--accent:var(--nutrition)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Питание</h3>
+          <div class="section-note">Калории и макронутриенты из дневника питания</div>
+        </div>
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Калории, ккал/день</h4></div>
+            <div class="chart-wrap" id="chart-diet-energy"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Соотношение макронутриентов</h4><div class="ph-sub">в среднем, доля калорий</div></div>
+            <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+              <div class="chart-wrap" id="chart-macros" style="width:auto"></div>
+              <div id="macros-legend" style="display:flex;flex-direction:column;gap:6px"></div>
+            </div>
+          </div>
+        </div>
+        <div class="insight" id="nutrition-insight"></div>
+      </section>
+
+      <!-- ================= AUDIO ================= -->
+      <section class="section" id="sec-audio" style="--accent:var(--audio)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Слух</h3>
+          <div class="section-note">Уровень звука в наушниках и окружающей среде</div>
+        </div>
+        <div class="panel" style="margin-bottom:16px">
+          <div class="panel-head">
+            <h4>Уровень звука, дБ</h4>
+            <div class="legend">
+              <div class="lg"><span class="sw line" style="background:var(--audio)"></span>Наушники</div>
+              <div class="lg"><span class="sw line" style="background:var(--resp)"></span>Окружение</div>
+            </div>
+          </div>
+          <div class="chart-wrap" id="chart-audio"></div>
+        </div>
+        <div class="insight" id="audio-insight"></div>
+      </section>
+
+      <!-- ================= WORKOUTS ================= -->
+      <section class="section" id="sec-workouts" style="--accent:var(--workouts)">
+        <div class="section-head">
+          <span class="accent-dot"></span><h3>Тренировки</h3>
+          <div class="section-note">Все зафиксированные тренировки за выбранный период</div>
+        </div>
+
+        <div class="stat-row" id="workout-stats" style="margin-bottom:16px"></div>
+
+        <div class="grid2" style="margin-bottom:16px">
+          <div class="panel">
+            <div class="panel-head"><h4>Типы тренировок</h4></div>
+            <div style="display:flex; gap:16px; align-items:center; flex-wrap:wrap">
+              <div class="chart-wrap" id="chart-workout-types" style="width:auto"></div>
+              <div id="workout-types-legend" style="display:flex;flex-direction:column;gap:6px; font-size:11px"></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h4>Тренировок в месяц</h4></div>
+            <div class="chart-wrap" id="chart-workout-trend"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h4>Журнал тренировок</h4></div>
+          <div class="table-toolbar">
+            <select class="mini-select" id="workout-type-select">
+              <option value="all">Все типы</option>
+            </select>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Дата</th><th>Тип</th><th>Длительность</th><th>Дистанция</th><th>Калории</th><th>Ср. пульс</th></tr></thead>
+              <tbody id="workout-table-body"></tbody>
+            </table>
+          </div>
+          <div class="foot-note">Показаны последние 300 записей, соответствующих фильтрам.</div>
+        </div>
+      </section>
+
+      <div class="footer-note">
+        Дэшборд собран автоматически из выгрузки Apple «Здоровье» (export.xml). Все расчёты и агрегации выполняются локально в браузере — файлы не отправляются никуда. Приведённые референсные диапазоны (пульс, давление, VO2 Max, сон, сатурация, уровень шума) основаны на общепринятых рекомендациях (AHA/ACC, WHO, CDC/National Sleep Foundation, Cooper Institute/ACSM) и приведены для общего ориентира — это не медицинская консультация и не диагноз. При тревожных изменениях показателей стоит обратиться к врачу.
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/charts.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
